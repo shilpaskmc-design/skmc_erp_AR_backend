@@ -1,0 +1,180 @@
+# Approval and Audit Requirements
+
+## Approval — Current MVP
+
+Current AR approval flow:
+
+Draft
+↓
+Submit for Approval
+↓
+Finance / Authorized User
+
+Available actions:
+
+- Approve
+- Edit
+- Return
+- Reject
+
+Human approval is required for current financial-document flow.
+
+---
+
+# Future Workflow Extensibility
+
+The current one-step workflow must not be hardcoded so tightly that future multi-stage approval requires rewriting the billing engine.
+
+Future possibility:
+
+Draft
+↓
+Manager
+↓
+Finance
+↓
+CFO
+↓
+Approved
+
+Possible future rules:
+
+- amount-based approvals
+- company-based approvals
+- document-type-based approvals
+- role-based approvals
+- multi-stage approval
+- conditional transitions
+
+Do not implement a generic workflow builder for MVP.
+
+Architecture should simply remain capable of future extension.
+
+---
+
+# Finalization Dependency
+
+For AR billing:
+
+Submit
+↓
+Approval
+↓
+Final document number
+↓
+Final PDF
+↓
+Invoice delivery
+
+Final statutory number should not normally be allocated while the document is still an ordinary draft.
+
+---
+
+# Editing Historical / Closed Transactions
+
+Current product direction:
+
+Normal users should not modify transactions belonging to locked historical periods.
+
+For exceptional cases, authorized Finance/Admin/Authority-level users may be allowed to perform changes if company policy permits.
+
+Exceptional historical edit/posting must require:
+
+- sufficient authority/permission
+- explicit reason
+- complete audit trail
+
+The purpose is flexibility for exceptional operational cases while ensuring changes cannot occur silently.
+
+The new architecture should remain configurable enough that management may later choose:
+
+- no override at all; or
+- authority-level override with reason/audit.
+
+Detailed period-closing logic belongs to the Accounting capability and is not part of the immediate AR MVP.
+
+Financial Year, Period Closing, and Period Lock are distinct concepts. Creating or selecting a Financial Year does not close or lock it.
+
+---
+
+# Statutory Invoice Edit Locks
+
+The GSTR-1 hard edit lock uses this exact rule:
+
+**Invoice included in a FILED GSTR-1 return / filing batch.**
+
+GSTR-1 filing batches are auditable by GST Registration + Return Period + Return Type. Adding an invoice to a `DRAFT` batch does not permanently lock it; draft membership can change with audit history. Once the batch is `FILED`, its exact document membership is immutable and the included invoice cannot be edited in place.
+
+Successful e-invoice/IRN generation is a separate hard edit lock. Corrections after either statutory lock use the permitted cancellation, amendment, Credit Note, or Debit Note process.
+
+---
+
+# Version History vs Audit Events
+
+Two concepts must remain distinct.
+
+## Version / Change History
+
+Answers:
+
+"What data changed?"
+
+Example:
+
+Credit Period:
+30 → 45
+
+## Business Audit Event
+
+Answers:
+
+"What business action happened?"
+
+Examples:
+
+- Invoice Created
+- Invoice Submitted
+- Invoice Approved
+- Invoice Returned
+- Invoice Rejected
+- Invoice Edited after approval
+- Historical-period override used
+- Invoice added to or removed from a draft GSTR-1 filing batch
+- GSTR-1 filing batch filed
+- Invoice edit blocked because it is included in a FILED GSTR-1 return / filing batch
+- E-invoice / IRN generated
+- Invoice Email Queued
+- Invoice Email Sent
+- Invoice Email Failed
+- Payment Allocated
+- Allocation Changed
+- PI Converted to TI
+- Exchange Rate Overridden
+- Reminder Sent
+- Configuration Changed
+- GL Account Created / Changed / Inactivated
+- Account Hierarchy / Group Relationship / GL Placement Changed
+- Revenue GL Mapping Changed
+- Tax / Statutory GL Mapping Changed
+- Default Receivable GL or Bank GL Association Changed
+- Receivable / Revenue / Tax GL Accounts Resolved at Transaction Finalization
+
+---
+
+# Audit Event Requirements
+
+Important events should preserve:
+
+- user / actor
+- timestamp
+- company
+- entity/document
+- action
+- previous state where applicable
+- resulting state
+- reason where applicable
+- relevant metadata
+
+Financially sensitive overrides must always be auditable.
+
+Super Admin / Authority should not silently bypass audit requirements.
