@@ -36,13 +36,16 @@
 |---|---|---|---|
 | Shared file/object metadata | Domain-specific raw storage keys/references without one approved shared identity | **ADD/KEEP `stored_files`** | Company-owned assets and immutable artifacts need one provider-neutral metadata identity; binary bytes remain in Cloudflare R2 behind `ObjectStorage`, and domain relationships remain explicit typed FKs |
 | `tenants` | `tenant_id` appeared as a platform concept rather than a proper master | **KEEP `tenants`** | SaaS isolation needs a stable root entity; IDs alone should point to an authoritative Tenant record |
+| Company identity foundation | Organisation code, Company-code scope, Draft nullability, and exact Company foundation constraints were unresolved | **CONFIRM/IMPLEMENT `currencies`, `organisations`, and `companies`** | The approved slice uses a global Currency master, code-free Tenant-owned Organisation grouping with same-Tenant Company enforcement, and Draft-capable Company identity with globally generated `COM` codes |
+| Geographic reference masters | Country and State candidates were deferred application-controlled codes | **KEEP `countries` and `country_subdivisions`** | Platform-managed ISO-compatible Country and first-level subdivision references provide stable shared identities without introducing City, District, postal-code, or address-hierarchy masters |
 | Company locations | Separate Location + address + purpose mapping | **Keep address + fixed-purpose flags on `company_locations` for MVP** | Current purposes are fixed and a separate mapping adds joins without current value |
 | GST Registration ↔ Location | GST/location mapping table | **`company_locations.gst_registration_id` nullable FK plus `is_default_for_gstin`** | One GST Registration has many Locations, one Location has zero/one Registration, and exactly one active mapped default exists where applicable; no M:N bridge is required |
 | Location address history | Separate version table | **KEEP `company_location_versions` for effective-dated address/jurisdiction history** | A stable Location may move, future changes may be scheduled, and master-data history can be needed independently of finalized invoice snapshots; the table does not version all Location configuration |
 | Location cost center membership | Cost-center location + membership table | **Store `cost_center_location_id` directly on `company_locations`** | One physical Location belongs to max one current location cost-center group; direct FK is sufficient |
-| Generic `cost_centers` / `cost_center_types` | Generic cost-center engine | **REMOVE** | Current model uses Business Segment, Team and Location Group themselves as cost-center/reporting bases |
+| Generic `cost_centers` / `cost_center_types` | Generic cost-center engine | **REMOVE** | Current model uses Business Segment and Location Group as reporting identities plus an explicit Cost Center Team bucket over separate actual Teams |
 | `cost_center_business_segments` | Normal `business_segments` / generic mapping | **KEEP renamed master** | Name makes clear these Business Segments are being used as cost-center/reporting buckets |
-| `cost_center_teams` | Normal `teams` / generic mapping | **KEEP renamed master** | Team itself is the reporting/cost-center bucket; user membership is separate |
+| `cost_center_teams` | Actual Team combined with reporting identity | **KEEP as reporting bucket** | One Company-owned Cost Center Team may group multiple actual Teams; it does not own user memberships directly |
+| `teams` | No separate operational Team identity | **ADD / KEEP actual Team master** | Actual Teams are Company-owned identities, may optionally reference one Cost Center Team, and own effective-dated user memberships |
 | Cost-center policy | `cost_center_policies` | **Rename to `company_cost_center_settings`** | It is simple feature enablement, not a generic policy/rule engine |
 | Base currency | Separate Company base-currency table | **Store `companies.base_currency_code`** | Exactly one base currency per Company; child table adds no value |
 | Billing/payment currencies | Separate billing and payment currency tables | **Use `company_ar_currencies`** | Same currency can be enabled for Billing, Receipt, or both; later payment-only currency is one new row/flag change |
@@ -93,21 +96,21 @@ Tenant: SKMC Global Account
 Another SaaS customer belongs to a different Tenant even if a Company name happens to be similar.
 
 **Columns**
-- `id` UUID PRIMARY KEY
+- `id` UUID PRIMARY KEY DEFAULT `gen_random_uuid()`
 - `name` VARCHAR(200) NOT NULL
-- `code` VARCHAR(50) NOT NULL UNIQUE
-- `status` controlled value NOT NULL
-- `created_at` TIMESTAMPTZ NOT NULL
-- `updated_at` TIMESTAMPTZ NOT NULL
+- `code` VARCHAR(50) NOT NULL UNIQUE DEFAULT `core.next_tenant_code()`
+- `status` VARCHAR(20) NOT NULL
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
 
 **Column meanings and reasons**
 
-- `id` is the stable internal database identity. Tenant names can change, and the business/support-facing code must not become relational identity. Foreign keys reference this UUID, which also remains safe across SaaS environments and future controlled import or distributed scenarios.
+- `id` is the stable internal database identity. Tenant names can change, and the business/support-facing code must not become relational identity. Foreign keys reference this UUID, which also remains safe across SaaS environments and future controlled import or distributed scenarios. PostgreSQL generates it with `gen_random_uuid()` unless a legitimate explicit UUID is supplied.
 - `name` is the human-readable SaaS customer/account name, such as `SKMC Global`, `ABC Group`, or `XYZ Enterprises`. It need not equal any Company's legal name and is intentionally not globally unique. It cannot be null or blank.
-- `code` is the stable human-friendly Tenant reference used by support, administration UI, operational logs, exports, integrations, and migration/reference work. It is not the primary key. It is required and globally unique, should preferably be system-generated, and should remain stable after creation; ordinary onboarding must not require users to invent it. The earlier optional-code direction is rejected because a blank code for most Tenants would not provide a dependable operational reference.
-- `status` controls the Tenant-level operational lifecycle and access state. Initial approved values are `ACTIVE` (normal operation), `SUSPENDED` (temporarily restricted at platform/account level), and `INACTIVE` (not operational for normal use while historical data remains preserved). `DELETED` is not a normal business state. The exact enum, reference, or check-constraint implementation follows project conventions.
-- `created_at` records when the Tenant record was created for operational history, support, and platform administration. It does not replace generic audit history.
-- `updated_at` records only when the current Tenant record was last changed. It does not identify the actor, changed field, old/new values, or reason; those belong to the future generic Audit architecture.
+- `code` is the stable human-friendly Tenant reference used by support, administration UI, operational logs, exports, integrations, and migration/reference work. It is not the primary key. PostgreSQL generates `TEN` plus a zero-padded concurrency-safe sequence value, starting with `TEN000001`; gaps are accepted, consumed values are never reused, and numbering continues beyond six digits within `VARCHAR(50)`. Ordinary onboarding does not accept a user-invented code, while controlled operations may supply an explicit value when legitimately required.
+- `status` controls the Tenant-level operational lifecycle and access state. It is stored as `VARCHAR(20)` with a CHECK allowing only `ACTIVE` (normal operation), `SUSPENDED` (temporarily restricted at platform/account level), and `INACTIVE` (not operational for normal use while historical data remains preserved). `DELETED` is not a normal business state. There is no database default; creation explicitly chooses a state.
+- `created_at` records when the Tenant record was created for operational history, support, and platform administration. PostgreSQL supplies `CURRENT_TIMESTAMP`; it does not replace generic audit history.
+- `updated_at` records only when the current Tenant record was last changed. PostgreSQL supplies `CURRENT_TIMESTAMP` on insert. No update trigger is part of the first migration; the application update path will manage later changes. It does not identify the actor, changed field, old/new values, or reason; those belong to the future generic Audit architecture.
 
 `created_by` and `updated_by` are not part of the approved Tenant design. Attribution remains dependent on the future generic Audit design rather than introducing inconsistent per-table audit columns now.
 
@@ -137,11 +140,13 @@ This requirement does not mean adding `tenant_id` blindly to every table. Direct
 - PRIMARY KEY: `id`.
 - UNIQUE: `code`; do not add `UNIQUE (name)`.
 - NOT NULL: `id`, `name`, `code`, `status`, `created_at`, and `updated_at`.
-- Controlled `status`: `ACTIVE`, `SUSPENDED`, or `INACTIVE`.
-- Database/application validation must reject blank `name` and `code` values in addition to enforcing NOT NULL.
+- CHECK `ck_tenants_status`: `status IN ('ACTIVE', 'SUSPENDED', 'INACTIVE')`.
+- CHECK `ck_tenants_name_not_blank`: `btrim(name) <> ''`.
+- CHECK `ck_tenants_code_not_blank`: `btrim(code) <> ''`.
 - The primary-key index covers `id`; `UNIQUE (code)` supplies the unique code index.
 - Do not add speculative status or administration indexes without a demonstrated query/workload requirement.
-- A Tenant must not be casually hard-deleted after business data exists. Lifecycle status/inactivation preserves historical ERP data; exact deletion and retention rules may later be strengthened by approved Audit/retention architecture.
+- No normal Tenant hard-delete workflow, delete trigger, or cascade is part of this slice. Future Tenant-owned FKs are restrictive unless a later approved requirement says otherwise. Lifecycle status/inactivation preserves historical ERP data; exact exceptional deletion and retention rules may later be strengthened by approved Audit/retention architecture.
+- PostgreSQL RLS and request/session Tenant-context machinery are not part of the first Tenant migration. Downstream ownership constraints remain table-specific, while authentication and authorization are separate approved concerns.
 
 **What does not belong in `tenants`**
 
@@ -177,23 +182,22 @@ Tenant: ABC Customer Account
 ```
 
 **Columns**
-- `id` UUID PRIMARY KEY
-- `tenant_id` UUID NOT NULL FK → `tenants.id`
+- `id` UUID PRIMARY KEY DEFAULT `gen_random_uuid()`
+- `tenant_id` UUID NOT NULL FK → `tenants.id` ON DELETE NO ACTION
 - `name` VARCHAR(200) NOT NULL
-- `code` VARCHAR(50) NULL
-- `status` controlled value NOT NULL
-- `created_at` TIMESTAMPTZ NOT NULL
-- `updated_at` TIMESTAMPTZ NOT NULL
+- `status` VARCHAR(20) NOT NULL
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
 
 **Column meanings and reasons**
 
-- `id` is the stable internal Organisation identity. Names and codes may change, while relationships must keep referencing the same Organisation through its UUID.
+- `id` is the stable internal Organisation identity. Names may change, while relationships keep referencing the same Organisation through its UUID. PostgreSQL generates it unless a legitimate explicit UUID is supplied.
 - `tenant_id` identifies the authoritative Tenant owner. Every Organisation belongs to exactly one Tenant and cannot exist without it. Organisation ownership must not be inferred indirectly, and an Organisation cannot contain a Company owned by another Tenant.
 - `name` is the human-readable group name, such as `ABC Manufacturing Group`, `International Operations`, or `Advisory Companies`. It is required, cannot be blank, and is unique only within its Tenant. Different Tenants may use the same Organisation name.
-- `code` is an optional human-friendly reference for possible import, reporting, or administration use. It is not mandatory. When present, it must be unique within the Tenant; different Tenants may reuse the same code, and multiple Organisations may have a null code.
-- `status` controls grouping availability. Approved values are `ACTIVE` (available for normal grouping/use) and `INACTIVE` (unavailable for new normal assignments while historical relationships remain preserved). `SUSPENDED` belongs to Tenant/account access rather than this grouping entity, and `DELETED` is not a normal lifecycle state. The exact enum, reference, or check-constraint implementation follows project conventions.
-- `created_at` records when the Organisation row was created. It does not replace generic audit history.
-- `updated_at` records only when the current row was last modified. It does not record the actor, old/new values, or reason; those remain part of the future generic Audit design.
+- No Organisation code is part of the approved MVP contract. UUID plus Tenant-scoped name are sufficient; another generated identifier system is not introduced without a demonstrated requirement.
+- `status` controls grouping availability. It is stored as `VARCHAR(20)` with a CHECK allowing only `ACTIVE` (available for normal grouping/use) and `INACTIVE` (unavailable for new normal assignments while historical relationships remain preserved). It has no database default.
+- `created_at` records when the Organisation row was created; PostgreSQL supplies `CURRENT_TIMESTAMP`.
+- `updated_at` records when the current row was last modified. PostgreSQL supplies the insert value, while application update paths own later changes; there is no update trigger.
 
 `created_by` and `updated_by` are not part of the approved Organisation design at this stage.
 
@@ -216,7 +220,7 @@ Organisation never replaces the Company's direct Tenant ownership.
 
 If Organisation `O1` belongs to Tenant `T1`, every Company referencing `O1` must also have `company.tenant_id = T1`. A Company owned by `T2` cannot reference `O1`. This invariant must be enforced by the database/backend design and cannot rely only on frontend validation.
 
-The exact PostgreSQL composite-FK or equivalent enforcement mechanism is not frozen here. It must be finalized during the `companies` table review without removing the direct authoritative `companies.tenant_id` relationship.
+The database enforces this invariant through `companies (tenant_id, organisation_id)` → `organisations (tenant_id, id)`, supported by `UNIQUE (tenant_id, id)`. The direct authoritative `companies.tenant_id` → `tenants.id` FK remains in place.
 
 **Why this table exists**
 1. A Tenant may own multiple Companies that management wants grouped together.
@@ -235,18 +239,83 @@ Company remains the legal, billing, tax, and accounting boundary. Future consoli
 **Constraints and indexing**
 
 - PRIMARY KEY: `id`.
-- FOREIGN KEY: `tenant_id` → `tenants.id`.
+- FOREIGN KEY: `tenant_id` → `tenants.id` with restrictive/no-action deletion.
 - NOT NULL: `id`, `tenant_id`, `name`, `status`, `created_at`, and `updated_at`.
 - UNIQUE: (`tenant_id`, `name`); do not make `name` globally unique.
-- PARTIAL UNIQUE: (`tenant_id`, `code`) WHERE `code IS NOT NULL`; do not make `code` mandatory or globally unique.
-- Controlled `status`: `ACTIVE` or `INACTIVE`.
-- Database/application validation must reject a blank `name`.
+- UNIQUE: (`tenant_id`, `id`) solely to support the same-Tenant Company/Organisation composite FK.
+- CHECK `btrim(name) <> ''`.
+- CHECK `status IN ('ACTIVE', 'INACTIVE')`; there is no status default.
 - The primary-key and unique constraints provide their corresponding indexes. Do not add speculative indexes without demonstrated query requirements.
 - An Organisation must not be hard-deleted once referenced by Company or historical data. Use `INACTIVE` for lifecycle retirement; exact long-term deletion/retention rules remain dependent on future generic Audit/retention architecture.
 
 **What does not belong in `organisations`**
 
 Do not store PAN, GSTIN, CIN, LLPIN, Registered Office/legal address, Company Base Currency, Company time zone, Financial Year, Bank Account, GST Registration, LUT, Chart of Accounts, GL configuration, tax configuration, document sequences, invoice seller configuration, Company-level email configuration, or a generic settings JSON object here. These remain Company/domain-specific unless a later approved requirement changes the boundary.
+
+---
+
+## 2A. `countries` — KEEP
+
+**What data is stored**
+- Global, platform-managed Country reference data using ISO 3166-1 alpha-2 identity.
+- The table is not Tenant-owned or Company-owned and is not maintained by normal ERP users.
+
+**Columns**
+- `code` VARCHAR(2) PRIMARY KEY
+- `name` VARCHAR(100) NOT NULL
+- `status` VARCHAR(20) NOT NULL
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+
+**Constraints and lifecycle**
+- CHECK `code ~ '^[A-Z]{2}$'`.
+- CHECK `btrim(name) <> ''`; Country name is not unique.
+- CHECK `status IN ('ACTIVE', 'INACTIVE')`; there is no status default.
+- Only the primary-key index is required; do not add speculative name or status indexes.
+- Alpha-3 and numeric ISO columns are not part of the approved minimum contract.
+- Referenced Countries are normally inactivated rather than deleted. Dependent FKs use restrictive/no-action deletion.
+- PostgreSQL supplies timestamp insert defaults; application update paths own later `updated_at` changes and no update trigger is used.
+
+**Provisioning and integration boundary**
+- Migration 004 creates no Country seed rows. A separate version-controlled reference-data loader will provision the catalogue.
+- Migration 004 does not retrofit `entity_types.country_code` or `companies.country_code` FKs. Those constraints require catalogue coverage and an audit of existing values first.
+
+---
+
+## 2B. `country_subdivisions` — KEEP
+
+**What data is stored**
+- Global, platform-managed first-level jurisdictions such as State, Union Territory, Province, Region, or equivalent.
+- Codes use the complete ISO-compatible identifier, such as `IN-UP`, `IN-MH`, `IN-DL`, or `US-CA`.
+
+**Columns**
+- `id` UUID PRIMARY KEY DEFAULT `gen_random_uuid()`
+- `country_code` VARCHAR(2) NOT NULL FK → `countries.code` ON DELETE NO ACTION
+- `code` VARCHAR(10) NOT NULL UNIQUE
+- `name` VARCHAR(150) NOT NULL
+- `subdivision_type` VARCHAR(50) NOT NULL
+- `gst_state_code` VARCHAR(2) nullable
+- `status` VARCHAR(20) NOT NULL
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+
+**Constraints and indexing**
+- CHECK `code ~ '^[A-Z]{2}-[A-Z0-9]{1,3}$'`.
+- CHECK `left(code, 2) = country_code`.
+- CHECK `btrim(name) <> ''`; subdivision name is not unique.
+- CHECK `subdivision_type ~ '^[A-Z]+(_[A-Z]+)*$'`. Values are canonical uppercase identifiers, but the database is not restricted to only State, Union Territory, Province, and Region.
+- CHECK `gst_state_code IS NULL OR gst_state_code ~ '^[0-9]{2}$'`.
+- Partial UNIQUE (`country_code`, `gst_state_code`) WHERE `gst_state_code IS NOT NULL`; GST State codes are country-scoped and the nullable field does not impose GST semantics on non-Indian subdivisions.
+- CHECK `status IN ('ACTIVE', 'INACTIVE')`; there is no status default.
+- INDEX (`country_code`) supports Country-based selection and FK operations. No other speculative indexes are approved.
+- UUID is relational identity; `code` is the unique external identifier.
+- Referenced subdivisions are normally inactivated rather than deleted.
+
+**Scope boundary**
+- Migration 004 contains no seed data or loader.
+- Migration 007 adds nullable GST State-code support but does not fabricate or seed statutory mappings. The version-controlled reference-data process owns those values.
+- Company has no direct Country Subdivision relationship. A later approved Company Location design may consume this master.
+- City remains Location address text. City, District, postal-code, and generic address-hierarchy masters are excluded.
 
 ---
 
@@ -257,21 +326,21 @@ Do not store PAN, GSTIN, CIN, LLPIN, Registered Office/legal address, Company Ba
 - Examples include Private Limited Company, Public Limited Company, One Person Company, Limited Liability Partnership, and Partnership Firm. The complete India legal-form matrix is not frozen here; Section 8 and Foreign Company classification remain open for separate legal/company-identity review.
 
 **Columns**
-- `id` UUID PRIMARY KEY
-- mandatory jurisdiction reference — exact `country_code` versus `country_id` representation OPEN pending Country-master review
+- `id` UUID PRIMARY KEY DEFAULT `gen_random_uuid()`
+- `country_code` VARCHAR(2) NOT NULL
 - `code` VARCHAR(50) NOT NULL
 - `name` VARCHAR(150) NOT NULL
-- `status` controlled value NOT NULL
+- `status` VARCHAR(20) NOT NULL
 
-The current `countries` candidate is DEFERRED, so this review does not invent a `countries` FK. The business invariant is frozen: an Entity Type cannot have an unknown or null jurisdiction. The concrete reference representation must be resolved through the Country-master review.
+The Country master is now approved and implemented separately. Migration 004 deliberately does not retrofit this existing column with a Country FK; the reference catalogue must first cover and audit all existing values.
 
 **Column meanings and reasons**
 
-- `id` is the stable relational identity of the legal form. Display names may change, but Company and future rule relationships continue to reference the same UUID rather than using code or name as a primary key.
-- The mandatory jurisdiction reference identifies the country/legal jurisdiction in which the form applies. Legal-form identity and uniqueness are jurisdiction-scoped. The exact physical field/FK is deliberately open because no Country master is currently approved.
+- `id` is the stable relational identity of the legal form. Display names may change, but Company and future rule relationships continue to reference the same UUID rather than using code or name as a primary key. PostgreSQL generates it with `gen_random_uuid()` unless a legitimate explicit UUID is supplied.
+- `country_code` identifies the country/legal jurisdiction in which the form applies. It is exactly two uppercase ASCII letters. Legal-form identity and code uniqueness are jurisdiction-scoped; the later Country FK retrofit remains pending reference-data provisioning and value audit.
 - `code` is the stable, platform-controlled machine identity, such as `PRIVATE_LIMITED`, `PUBLIC_LIMITED`, `OPC`, `LLP`, or `PARTNERSHIP`. It is not entered by normal Company users and should remain stable after use; changing the display name does not require changing the code.
-- `name` is the human-readable UI label, such as `Private Limited Company`. It is display text rather than relational or machine identity, is required, and cannot be blank. Duplicate canonical display names within one jurisdiction must be prevented or normalized under the eventual shared-reference convention; names are not globally unique across jurisdictions.
-- `status` controls reference availability. Approved values are `ACTIVE` (normally selectable for new/current Company configuration) and `INACTIVE` (retained historically but not normally selectable for new setup). `SUSPENDED` and `DELETED` are not normal states for this reference master.
+- `name` is the human-readable UI label, such as `Private Limited Company`. It is display text rather than relational or machine identity, is required, and cannot be blank. It is not unique; display-name curation remains a platform-administration responsibility.
+- `status` controls reference availability. It is stored as `VARCHAR(20)` with a CHECK allowing only `ACTIVE` (normally selectable for new/current Company configuration) and `INACTIVE` (retained historically but not normally selectable for new setup). `SUSPENDED` and `DELETED` are not normal states. There is no database default.
 
 **Canonical identity and code rules**
 
@@ -281,7 +350,7 @@ code = stable platform-controlled machine code
 name = human-readable display label
 ```
 
-Codes use uppercase letters, numbers, and underscores only, with no spaces and underscores preferred between words. For example, `PRIVATE_LIMITED`, `PUBLIC_LIMITED`, and `LLP` are valid directions; `private_limited`, `Private Limited`, and `Pvt Ltd` are invalid. Database/backend validation equivalent to an appropriate PostgreSQL regular-expression check may enforce this during implementation.
+Codes use uppercase letters, numbers, and underscores only, with no spaces and underscores between words. For example, `PRIVATE_LIMITED`, `PUBLIC_LIMITED`, and `LLP` are structurally valid; `private_limited`, `Private Limited`, and `Pvt Ltd` are invalid. The database enforces the approved canonical format through the named PostgreSQL regular-expression CHECK below.
 
 Companies store `companies.entity_type_id` → `entity_types.id`; they do not store uncontrolled legal-form text such as `Pvt Ltd` as identity.
 
@@ -312,13 +381,16 @@ Import text variants such as `Pvt Ltd`, `PVT. LTD.`, `Private Ltd`, and `Private
 **Constraints and indexing**
 
 - PRIMARY KEY: `id`.
-- NOT NULL: `id`, mandatory jurisdiction reference, `code`, `name`, and `status`.
-- UNIQUE: (jurisdiction reference, `code`); code is not required to be globally unique across jurisdictions.
-- Controlled `status`: `ACTIVE` or `INACTIVE`.
-- Reject blank `code` and `name`.
-- Enforce canonical uppercase machine-code format through database/backend validation.
+- NOT NULL: `id`, `country_code`, `code`, `name`, and `status`.
+- UNIQUE `uq_entity_types_country_code_code`: (`country_code`, `code`); code is not globally unique.
+- CHECK `ck_entity_types_country_code_format`: `country_code ~ '^[A-Z]{2}$'`.
+- CHECK `ck_entity_types_code_not_blank`: `btrim(code) <> ''`.
+- CHECK `ck_entity_types_code_format`: `code ~ '^[A-Z0-9]+(?:_[A-Z0-9]+)*$'`.
+- CHECK `ck_entity_types_name_not_blank`: `btrim(name) <> ''`.
+- CHECK `ck_entity_types_status`: `status IN ('ACTIVE', 'INACTIVE')`.
 - The primary-key and unique constraints provide their corresponding indexes. Do not add speculative indexes without a demonstrated query requirement.
-- Once referenced by Companies, an Entity Type is inactivated rather than normally hard-deleted. Its UUID and canonical code remain stable; its display name may be legitimately corrected without changing identity.
+- Do not add a name index, status index, RLS, delete trigger, or cascade behavior. Once referenced by Companies, an Entity Type is inactivated rather than normally hard-deleted; future Company FKs are restrictive/no-action unless later requirements change this rule. Its UUID and canonical code remain stable, while its display name may be legitimately corrected without changing identity.
+- No `created_at` or `updated_at` columns are part of this table.
 
 **What does not belong in `entity_types`**
 
@@ -332,8 +404,8 @@ Do not store `tenant_id`, `company_id`, PAN, CIN, LLPIN, GSTIN, legal address, t
 - Shared, platform-managed reference identities for jurisdiction-specific Company legal identifier types, such as PAN, CIN, LLPIN, and future UEN-like identifiers.
 
 **Columns**
-- `id` UUID PRIMARY KEY
-- mandatory jurisdiction reference — same unresolved representation as `entity_types`
+- `id` UUID PRIMARY KEY DEFAULT `gen_random_uuid()`
+- mandatory jurisdiction reference — exact physical representation remains OPEN for this table
 - `code` VARCHAR(50) NOT NULL
 - `name` VARCHAR(150) NOT NULL
 - `status` controlled value NOT NULL
@@ -341,7 +413,7 @@ Do not store `tenant_id`, `company_id`, PAN, CIN, LLPIN, GSTIN, legal address, t
 **Column meanings and reasons**
 
 - `id` is the stable identity referenced by Company values and Entity-Type applicability rules. Code and name are not relational primary keys.
-- The mandatory jurisdiction reference identifies where the identifier type applies. The approved business rule is mandatory jurisdiction; physical `country_id` versus `country_code` remains open with the same Country-master decision used by `entity_types`.
+- The mandatory jurisdiction reference identifies where the identifier type applies. The approved business rule is mandatory jurisdiction; physical `country_id` versus `country_code` remains open for this table. The direct `country_code` approved for `entity_types` does not silently resolve this separate contract.
 - `code` is the stable, platform-controlled machine identity, such as `PAN`, `CIN`, `LLPIN`, or `UEN`. It uses uppercase letters, numbers, and underscores only, cannot be blank, and remains stable after use.
 - `name` is the human-readable label, such as `Permanent Account Number` or `Unique Entity Number`. It may be corrected without changing UUID or code and cannot be blank.
 - `status` is `ACTIVE` when normally available for applicable Company configuration and `INACTIVE` when retained historically but not normally offered for new use.
@@ -373,13 +445,13 @@ This is shared reference data and has no `tenant_id`. Normal Tenant/Company user
 - The actual jurisdiction-specific legal identifier values belonging to a Company.
 
 **Columns**
-- `id` UUID PRIMARY KEY
-- `company_id` UUID NOT NULL FK → `companies.id`
+- `id` UUID PRIMARY KEY DEFAULT `gen_random_uuid()`
+- `company_id` UUID NOT NULL FK → `companies.id` with restrictive/no-action deletion
 - `identifier_type_id` UUID NOT NULL FK → `company_identifier_types.id`
 - `identifier_value` VARCHAR(255) NOT NULL
 - `status` controlled value NOT NULL
-- `created_at` TIMESTAMPTZ NOT NULL
-- `updated_at` TIMESTAMPTZ NOT NULL
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
 
 **Column meanings and reasons**
 
@@ -422,8 +494,8 @@ GSTIN remains in GST Registration architecture and is not moved into this generi
 - `entity_type_id` UUID NOT NULL FK → `entity_types.id`
 - `identifier_type_id` UUID NOT NULL FK → `company_identifier_types.id`
 - `requirement_level` controlled value NOT NULL
-- `created_at` TIMESTAMPTZ NOT NULL
-- `updated_at` TIMESTAMPTZ NOT NULL
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
 
 **Column meanings and reasons**
 
@@ -470,40 +542,40 @@ Platform/system administration owns these applicability rules. Normal Tenant/Com
 - Stable current legal/business identity and single-value Company-wide defaults shared across AR and future AP/Accounting. Company is the legal, seller/billing, tax-registration-owner, and accounting boundary; it is neither the SaaS Tenant nor an Organisation grouping.
 
 **Columns**
-- `id` UUID PRIMARY KEY
-- `tenant_id` UUID NOT NULL FK → `tenants.id`
-- `organisation_id` UUID nullable FK → `organisations`
+- `id` UUID PRIMARY KEY DEFAULT `gen_random_uuid()`
+- `tenant_id` UUID NOT NULL FK → `tenants.id` ON DELETE NO ACTION
+- `organisation_id` UUID NULL
 - `legal_name` VARCHAR(255) NOT NULL
 - `display_name` VARCHAR(200) NULL
-- `company_code` VARCHAR(50) — nullability and exact uniqueness OPEN
-- `entity_type_id` UUID FK → `entity_types.id` — physical nullability OPEN for draft lifecycle
-- mandatory country/jurisdiction reference — exact `country_code` versus `country_id` representation OPEN
-- `email` nullable
-- `phone` nullable
-- `website` nullable
-- `base_timezone`
-- `base_currency_code` VARCHAR(3) FK → `currencies.code` under the approved Currency design
-- `business_nature` controlled value — `SERVICES` / `GOODS` / `BOTH`
-- `status` controlled value — exact lifecycle values OPEN
-- `created_at` TIMESTAMPTZ NOT NULL
-- `updated_at` TIMESTAMPTZ NOT NULL
+- `company_code` VARCHAR(50) NOT NULL UNIQUE DEFAULT `core.next_company_code()`
+- `entity_type_id` UUID NULL FK → `entity_types.id` ON DELETE NO ACTION
+- `country_code` VARCHAR(2) NULL
+- `email` VARCHAR(320) NULL
+- `phone` VARCHAR(32) NULL
+- `website` VARCHAR(2048) NULL
+- `base_timezone` VARCHAR(64) NULL
+- `base_currency_code` VARCHAR(3) NULL FK → `currencies.code` ON DELETE NO ACTION
+- `business_nature` VARCHAR(20) NULL
+- `status` VARCHAR(20) NOT NULL
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
 
 **Column meanings and reasons**
 
 - `id` is the stable Company identity reused by all modules. Name/code changes never change relational identity.
 - `tenant_id` is the mandatory authoritative SaaS owner. Ownership is direct and is not inferred through Organisation.
-- `organisation_id` is optional grouping only. A Company may exist without it; any referenced Organisation must belong to the same Tenant, with exact database enforcement finalized separately.
+- `organisation_id` is optional grouping only. A Company may exist without it; a composite FK with `tenant_id` ensures any referenced Organisation belongs to the same Tenant.
 - `legal_name` is the current official Company-level legal name. It cannot be blank and is distinct from the legal name currently recorded against a specific GSTIN. Historical legal-name states are preserved through Company profile versions.
 - `display_name` is an optional short/UI-facing name and is never statutory legal identity.
-- `company_code` is a human-friendly reference for search, reports, integrations, operations, and possible numbering tokens. It is not a relational key; nullability and uniqueness remain open for explicit review.
-- `entity_type_id` selects controlled legal-form reference data. A completed/usable Company must have a jurisdiction-compatible Entity Type, while physical NOT NULL behavior remains open for incomplete drafts.
-- The mandatory country/jurisdiction reference establishes authoritative Company jurisdiction. Its physical representation follows the pending Country-master decision.
+- `company_code` is the immutable normal-operation reference for search, reports, integrations, and operations. PostgreSQL generates globally unique `COM` plus a sequence number padded to at least six digits, starting with `COM000001`; gaps are accepted and values are never intentionally reused. It is not the primary key and normal onboarding does not accept a manually invented value.
+- `entity_type_id` selects controlled legal-form reference data. It may be null while the Company is `DRAFT`, but activation requires a jurisdiction-compatible value. The ordinary FK protects identity; compatibility with `country_code` is enforced transactionally by future Company business logic rather than a composite FK.
+- `country_code` stores an uppercase two-letter Company jurisdiction. It may be null while `DRAFT` and becomes logically mandatory before activation. Migration 004 does not add its Country FK; catalogue provisioning and an audit of existing values must precede that retrofit.
 - `email`, `phone`, and `website` are optional primary Company contact values. A separate contact model is not introduced without a multi-contact requirement.
 - `base_timezone` supplies Company-local operational, scheduling, and reporting context; Tenant time zone is not a substitute.
 - `base_currency_code` identifies the Company's base currency through the shared Currency master. Reporting and AR permissions remain separate Company configurations.
 - `business_nature` is functional configuration: `SERVICES` enables the Service catalogue path, `GOODS` enables Product/SKU setup, and `BOTH` enables both.
-- `status` retains Company lifecycle state, but the exact controlled values are not frozen in this review.
-- `created_at` and `updated_at` are current-row timestamps only; they do not replace profile versioning or generic Audit evidence.
+- `status` is `DRAFT`, `ACTIVE`, or `INACTIVE`, stored as `VARCHAR(20)` with no database default. Incomplete configuration may persist in `DRAFT`; future activation business logic owns the evolving completeness rules.
+- `created_at` and `updated_at` are current-row timestamps only. PostgreSQL supplies insert defaults, the application owns later `updated_at` changes, and no update trigger is used.
 
 **Relationships**
 - Tenant 1:N Companies
@@ -513,15 +585,22 @@ Platform/system administration owns these applicability rules. Normal Tenant/Com
 
 **Legal identifier direction**
 
-The earlier direct `pan`, `cin`, and `llpin` Company columns are REPLACED in the current design by `company_identifiers`. `companies.entity_type_id` remains. The current Company-column review preserves the explicitly open nullability, uniqueness, lifecycle, and jurisdiction-representation decisions listed below rather than guessing them.
+The earlier direct `pan`, `cin`, and `llpin` Company columns are REPLACED in the current design by `company_identifiers`. `companies.entity_type_id` remains. Entity Type/country compatibility is an application transaction invariant for the future activation service and does not add a redundant composite Entity Type key.
 
 **Constraints and exclusions**
 
 - PRIMARY KEY: `id`.
-- `tenant_id` and non-blank `legal_name` are required.
-- `organisation_id` is optional and must remain Tenant-compatible when present.
-- `business_nature` is limited to `SERVICES`, `GOODS`, or `BOTH`.
-- Do not freeze Company status values, Company-code nullability/uniqueness, Entity-Type physical nullability, or country-reference representation here.
+- FOREIGN KEY: direct `tenant_id` → `tenants.id`, optional `entity_type_id` → `entity_types.id`, and optional `base_currency_code` → `currencies.code`, all restrictive/no-action.
+- COMPOSITE FOREIGN KEY: (`tenant_id`, `organisation_id`) → `organisations (tenant_id, id)`; a null Organisation remains valid.
+- NOT NULL even in `DRAFT`: `id`, `tenant_id`, `legal_name`, generated `company_code`, `status`, `created_at`, and `updated_at`.
+- NULL permitted while `DRAFT`: `organisation_id`, `entity_type_id`, `country_code`, `display_name`, contact fields, `base_timezone`, `base_currency_code`, and `business_nature`.
+- UNIQUE: global `company_code`; `legal_name` and `display_name` are not unique.
+- CHECK non-blank `legal_name`; each optional text value rejects blank/whitespace-only text when present.
+- CHECK `company_code ~ '^COM[0-9]{6,}$'` and optional `country_code ~ '^[A-Z]{2}$'`.
+- CHECK optional `business_nature IN ('SERVICES', 'GOODS', 'BOTH')`.
+- CHECK `status IN ('DRAFT', 'ACTIVE', 'INACTIVE')`; there is no status default.
+- INDEX (`tenant_id`, `organisation_id`) supports normal grouping lookup and the approved Tenant/Organisation relationship. Do not add status, legal-name, contact, or other speculative indexes.
+- The database does not encode the full activation-readiness workflow. Before activation, Company business logic must require at least country, compatible Entity Type, valid IANA time zone, valid Base Currency, Business Nature, Registered Office, and other configuration owned elsewhere.
 - Do not store PAN, CIN, LLPIN, GSTIN, Registered Office/other addresses, Bank Accounts, Financial Year instances, LUTs, HSN/SAC, CoA hierarchy, GL balances, numbering sequences, GST-registration State, or GST-registration-specific registered legal name directly on Company.
 - Company branding remains Company configuration, but no blob/path column is invented without the approved file-storage pattern.
 
@@ -552,19 +631,19 @@ Legal-name changes must not silently destroy prior states. Finalized invoices re
 - Shared GST-specific reference data used by Company GST Registrations. It is not the generic Tax Type/family master.
 
 **Columns**
-- `id` UUID PRIMARY KEY
+- `id` UUID PRIMARY KEY DEFAULT `gen_random_uuid()`
 - `code` VARCHAR(50) NOT NULL
 - `name` VARCHAR(100) NOT NULL
 - `description` VARCHAR(500) NULL
 - `status` VARCHAR(20) NOT NULL
-- `created_at` TIMESTAMPTZ NOT NULL
-- `updated_at` TIMESTAMPTZ NOT NULL
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
 
 **Constraints, lifecycle, and relationships**
 - UNIQUE (`code`).
 - `status` is controlled as `ACTIVE` or `INACTIVE`.
 - `code` is the stable, canonical system-facing identity; `name` is the required display label and `description` is optional explanatory metadata.
-- No business defaults are defined for these columns.
+- No business defaults are defined. PostgreSQL supplies only the UUID and timestamp infrastructure defaults.
 - Registration Type 1:N Company GST Registrations through `company_gst_registrations.gst_registration_type_id`.
 - Referenced types are retired/inactivated rather than deleted.
 - Exact supported GST Registration Type values remain subject to statutory reference-data review; no list is invented here.
@@ -585,29 +664,29 @@ Legal-name changes must not silently destroy prior states. Finalized invoices re
 - Seller Company's GST registration identities and their current validity/status.
 
 **Columns**
-- `id` UUID PRIMARY KEY
-- `company_id` UUID NOT NULL FK → `companies.id`
+- `id` UUID PRIMARY KEY DEFAULT `gen_random_uuid()`
+- `company_id` UUID NOT NULL FK → `companies.id` ON DELETE NO ACTION
 - `gstin` VARCHAR(15) NOT NULL
-- `registered_legal_name` nullable
-- `gst_registration_type_id` UUID FK → `gst_registration_types.id` — physical nullability OPEN for draft lifecycle
-- mandatory State/UT jurisdiction reference — exact `state_code` versus `state_id` representation OPEN
-- `valid_from` nullable
-- `valid_to` nullable
-- `status` controlled value NOT NULL — exact statutory lifecycle values OPEN
-- `created_at` TIMESTAMPTZ NOT NULL
-- `updated_at` TIMESTAMPTZ NOT NULL
+- `registered_legal_name` VARCHAR(255) nullable
+- `gst_registration_type_id` UUID nullable FK → `gst_registration_types.id` ON DELETE NO ACTION
+- `subdivision_code` VARCHAR(10) NOT NULL FK → `country_subdivisions.code` ON DELETE NO ACTION
+- `valid_from` DATE nullable
+- `valid_to` DATE nullable
+- `status` VARCHAR(20) NOT NULL with no database default (`DRAFT`, `ACTIVE`, `INACTIVE`)
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
 
 **Column meanings and reasons**
 
 - `id` is the stable registration identity referenced by Locations, LUTs, and other relationships rather than GSTIN text.
 - `company_id` identifies the owning legal Company; no GST Registration exists without a Company.
-- `gstin` is the statutory number. Store trimmed canonical uppercase text, require statutory format validation, and enforce `UNIQUE (gstin)` across the ERP because one GSTIN cannot belong simultaneously to two Company masters.
+- `gstin` is the statutory number. Store trimmed canonical uppercase text, require the structural pattern `^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$`, and enforce `UNIQUE (gstin)` across the ERP because one GSTIN cannot belong simultaneously to two Company masters. Checksum validation is deferred.
 - `registered_legal_name` is the current legal name recorded against this specific GSTIN. It is distinct from the current Company-master legal name and may temporarily differ during statutory amendment.
-- `gst_registration_type_id` retains the controlled GST Registration Type reference. A completed/usable registration needs an applicable type; draft nullability remains open.
-- The mandatory State/UT reference records registration jurisdiction explicitly for Location compatibility, seller selection, reporting, and validation rather than reparsing GSTIN for every use. Physical representation remains open with the deferred State master.
+- `gst_registration_type_id` retains the controlled GST Registration Type reference and may be null while `DRAFT`. Activation readiness will later require an applicable active type.
+- `subdivision_code` records the mandatory shared Indian State/UT jurisdiction. Creation requires an active `IN` Subdivision with a provisioned `gst_state_code`, and the first two GSTIN digits must match that code.
 - `valid_from` is the optional known applicable start date; earlier transactions cannot use the registration.
 - `valid_to` is the optional end date. When both dates exist, `valid_to >= valid_from`.
-- `status` is required and represents current usable/statutory lifecycle, not generic Company lifecycle. Exact values remain open for verified GST-status review.
+- `status` is required and follows the current configuration lifecycle `DRAFT` → `ACTIVE` → `INACTIVE`. New registrations are created as `DRAFT`; transition endpoints are outside this foundation.
 - `created_at` and `updated_at` are current-row timestamps only, not statutory history or Audit attribution.
 
 **Relationships**
@@ -621,9 +700,13 @@ Legal-name changes must not silently destroy prior states. Finalized invoices re
 
 - PRIMARY KEY: `id`.
 - FOREIGN KEY: `company_id` → `companies.id`.
-- NOT NULL: `id`, `company_id`, `gstin`, mandatory State/UT reference, `status`, `created_at`, and `updated_at`.
+- FOREIGN KEY: nullable `gst_registration_type_id` → `gst_registration_types.id` and `subdivision_code` → `country_subdivisions.code`.
+- NOT NULL: `id`, `company_id`, `gstin`, `subdivision_code`, `status`, `created_at`, and `updated_at`.
 - UNIQUE: `gstin`; do not weaken this to only (`company_id`, `gstin`).
+- Partial UNIQUE (`company_id`, `subdivision_code`) WHERE `status = 'ACTIVE'` prevents concurrent creation or activation of two active registrations for one Company and State/UT while allowing drafts and retained inactive history.
+- CHECK the approved GSTIN structural pattern, optional non-blank registered legal name, date ordering, and exact lifecycle values.
 - `valid_to IS NULL OR valid_from IS NULL OR valid_to >= valid_from`.
+- Service creation requires Tenant-safe Company resolution, `companies.country_code = 'IN'`, an active/provisioned Indian Subdivision, GSTIN-prefix compatibility, and an active Registration Type when one is supplied.
 - Used registrations are not casually hard-deleted; validity, status, and version history preserve statutory references.
 - Do not add a global GST Registration `is_default`. Seller GSTIN follows seller Location and transaction context.
 - Do not store Company/Location address, PAN, Bank Account, LUT details, tax rates, numbering, invoice templates, or ad-hoc attachment paths here.
@@ -660,31 +743,32 @@ Finalized invoices preserve the actual seller legal name, GSTIN, seller address,
 ## 7. `company_locations` — KEEP
 
 **What data is stored**
-- One stable physical/business Location belonging to a Company, including its current usable address/configuration state, fixed Location purposes, optional current GST Registration and optional Location Cost Center.
+- One stable physical/business Location belonging to a Company, including its current usable address/configuration state and fixed Location purposes. The nullable GST Registration relationship is active from Migration 007 and the nullable Location Cost Center relationship is active from Migration 0010; default-GSTIN behavior remains a future extension.
 
 **Columns**
 - `id` UUID PRIMARY KEY
 - `company_id` UUID NOT NULL FK → `companies.id`
-- `gst_registration_id` UUID nullable FK → `company_gst_registrations.id`
-- `is_default_for_gstin` BOOLEAN NOT NULL DEFAULT false
-- `cost_center_location_id` UUID nullable FK → `cost_center_locations.id`
-- `location_name` VARCHAR(...) NOT NULL
-- `address_line_1`
-- `address_line_2` nullable
-- `city`
-- `district` nullable
-- mandatory State/region/jurisdiction reference as applicable — exact FK/code representation OPEN
-- `postal_code`
-- mandatory Country/jurisdiction reference — exact FK/code representation OPEN
+- `location_name` VARCHAR(150) NOT NULL
+- `address_line_1` VARCHAR(255) NOT NULL
+- `address_line_2` VARCHAR(255) nullable
+- `city` VARCHAR(100) NOT NULL
+- `district` VARCHAR(100) nullable
+- `subdivision_code` VARCHAR(10) nullable; composite FK with `country_code` → `country_subdivisions(country_code, code)`
+- `country_code` VARCHAR(2) NOT NULL FK → `countries.code`
+- `gst_registration_id` UUID nullable; composite FK with `company_id` and `subdivision_code` → `company_gst_registrations(company_id, id, subdivision_code)`
+- `cost_center_location_id` UUID nullable; composite FK with `company_id` → `cost_center_locations(company_id, id)`
+- `postal_code` VARCHAR(20) nullable
 - `is_registered_office` BOOLEAN NOT NULL DEFAULT false
 - `is_corporate_office` BOOLEAN NOT NULL DEFAULT false
 - `is_branch` BOOLEAN NOT NULL DEFAULT false
 - `is_billing_office` BOOLEAN NOT NULL DEFAULT false
 - `is_warehouse` BOOLEAN NOT NULL DEFAULT false
-- `other_purpose` nullable
-- `status` controlled value NOT NULL (`ACTIVE`, `INACTIVE` for the current lifecycle)
-- `created_at` TIMESTAMPTZ NOT NULL
-- `updated_at` TIMESTAMPTZ NOT NULL
+- `other_purpose` VARCHAR(150) nullable
+- `status` VARCHAR(20) NOT NULL with no database default (`ACTIVE`, `INACTIVE` for the current lifecycle)
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+
+Migration 005 initially omitted `gst_registration_id`, `is_default_for_gstin`, and `cost_center_location_id`. Migration 007 adds the nullable `gst_registration_id` with complete same-Company and jurisdiction protection. Migration 0010 adds the nullable `cost_center_location_id` with same-Company protection. Default-GSTIN/default-Location behavior and `is_default_for_gstin` remain deferred.
 
 `location_code` is **DEFERRED** and is not part of the current Location master. The UUID supplies stable relational identity and `location_name` supplies human-readable business identity. No approved integration, numbering, import, legacy-mapping, search, or reference requirement currently needs another code; a concrete future requirement may add one.
 
@@ -692,9 +776,9 @@ Finalized invoices preserve the actual seller legal name, GSTIN, seller address,
 
 - `id` is the stable identity. The same logical Location can retain its UUID when its physical address changes.
 - `company_id` is the mandatory owner; a Location cannot exist without a Company.
-- `gst_registration_id` is the nullable current GST Registration relationship. One GST Registration can serve many Locations, while a Location can exist without GST registration; no M:N bridge is required.
-- `is_default_for_gstin` marks the active mapped Location offered as the preselection for a GSTIN. It does not remove explicit transaction-level Location selection.
-- `cost_center_location_id` optionally rolls several physical Locations into one Company-owned Location Cost Center/reporting bucket. A Location is not automatically a Cost Center.
+- `gst_registration_id` allows one GST Registration to serve many Locations while a Location may exist without GST registration; no M:N bridge is required.
+- Future `is_default_for_gstin` behavior will mark the active mapped Location offered as the preselection for a GSTIN without removing explicit transaction-level Location selection.
+- `cost_center_location_id` optionally rolls several physical Locations into one same-Company Location Cost Center/reporting bucket. A Location does not automatically become a Cost Center.
 - `location_name` is the required, non-blank human-readable business identity, such as `Noida Registered Office` or `Mumbai Branch`.
 - The address fields hold the current usable physical address. A usable Location must contain the components required by its jurisdiction; the design does not impose one worldwide address format.
 - The fixed purpose flags allow one physical Location to serve several purposes simultaneously without duplicate Location rows or a generic purpose-mapping engine.
@@ -704,8 +788,10 @@ Finalized invoices preserve the actual seller legal name, GSTIN, seller address,
 
 **Relationships**
 - Company 1:N Locations
+- Country 1:N Locations
+- Country Subdivision 1:N Locations (nullable from Location side and compatible with the selected Country)
 - GST Registration 1:N Locations (nullable from Location side)
-- Location Cost Center 1:N Locations (nullable from Location side)
+- Future Location Cost Center 1:N Locations (nullable from Location side)
 
 **Why this table exists**
 1. A Company can operate from multiple physical/business places.
@@ -717,10 +803,11 @@ Finalized invoices preserve the actual seller legal name, GSTIN, seller address,
 
 **Important current rules**
 - At most one active Location per Company may have `is_registered_office = true`, using an appropriate partial uniqueness constraint/index. A completed/usable Company must have exactly one active Registered Office; the at-least-one rule belongs to setup/activation validation so incomplete drafts are not prematurely blocked.
-- For a completed/usable Location, at least one fixed purpose or `other_purpose` should normally exist. If draft Location behavior remains open, this business rule must not be converted prematurely into an unconditional physical constraint.
-- Linked GST Registration and Location Cost Center must each belong to the same Company as the Location. These ownership protections must not be frontend-only.
-- At most one active mapped Location per GST Registration may have `is_default_for_gstin = true`, using an appropriate partial uniqueness approach. If product flow requires at least one default for an applicable multi-Location GST Registration, that side is business/service validation.
-- A mapped Location's State/UT jurisdiction must be compatible with its GST Registration. Frontend filtering may assist selection, but backend/database protection must reject incompatibility; exact PostgreSQL mechanics remain open while the physical State-reference design is unresolved.
+- Every Location must have at least one fixed purpose or a non-blank `other_purpose`; this is enforced in request validation and by a database CHECK.
+- `country_code` is mandatory. `subdivision_code` is optional, but when supplied the composite FK `(country_code, subdivision_code)` guarantees that the Subdivision belongs to the selected Country. `country_subdivisions(country_code, code)` has the minimum supporting uniqueness constraint; the existing global uniqueness of complete Subdivision `code` remains unchanged.
+- A linked GST Registration must belong to the same Company and use the same non-null `subdivision_code` as the Location. Migration 007 enforces both through one composite FK and a linked-Location subdivision CHECK. Future Location Cost Center ownership must likewise be database-protected when implemented.
+- Default-GSTIN/default-Location behavior and `is_default_for_gstin` remain deferred; no Company-global default GSTIN is introduced.
+- A mapped Location's State/UT jurisdiction must match its GST Registration. Frontend filtering may assist selection, but the composite PostgreSQL FK is authoritative protection.
 - Historically used Locations are deactivated rather than deleted.
 - Do not store duplicated GSTIN text, LUT details, Company PAN/CIN/LLPIN, Bank Accounts, tax rates, document sequences, CoA, invoice templates, speculative `location_code`, or ad-hoc attachment paths on this table.
 
@@ -775,16 +862,18 @@ Finalized invoices preserve the actual seller legal name, GSTIN, seller address,
 
 **Columns**
 - `company_id` UUID PRIMARY KEY and FK → `companies.id`
+- `fiscal_year_pattern` VARCHAR(20) NOT NULL (`APR_MAR`, `JAN_DEC`, `CUSTOM`)
 - `start_month` SMALLINT NOT NULL
 - `start_day` SMALLINT NOT NULL
-- `created_at` TIMESTAMPTZ NOT NULL
-- `updated_at` TIMESTAMPTZ NOT NULL
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
 
 **Column meanings and constraints**
 
 - `company_id` is both PK and FK because the approved relationship is Company 1:1 Fiscal Settings. A separate surrogate UUID adds no current value.
+- `fiscal_year_pattern` retains the configured typed pattern. `APR_MAR` requires month/day `4/1`; `JAN_DEC` requires `1/1`; `CUSTOM` uses the stored configurable month/day.
 - `start_month` is the normal fiscal-year starting month and must be between 1 and 12.
-- `start_day` is the normal starting day and must be between 1 and 31. The month/day combination must also form a valid calendar date; this protection must not rely only on frontend validation.
+- `start_day` is the normal starting day. The month/day combination must exist in every non-leap calendar year: February 29 and impossible dates such as April 31 are rejected by database CHECK and request validation.
 - `created_at` and `updated_at` record current-row timestamps.
 - Do not store `end_month` or `end_day`. A normal period ends one day before the next normal start; actual exceptions belong in `financial_years`.
 - Do not store `current_financial_year_id`, `is_current`, `is_closed`, `is_locked`, or `status`. This table does not represent actual FY instances, accounting close, period locks, or current-period state.
@@ -815,15 +904,15 @@ Finalized invoices preserve the actual seller legal name, GSTIN, seller address,
 - Actual dated Financial Year instances for each Company. Their stored dates are authoritative and are not later re-derived from current fiscal settings.
 
 **Columns**
-- `id` UUID PRIMARY KEY
+- `id` UUID PRIMARY KEY DEFAULT `gen_random_uuid()`
 - `company_id` UUID NOT NULL FK → `companies.id`
 - `start_date` DATE NOT NULL
 - `end_date` DATE NOT NULL
-- `display_code` VARCHAR(...) NOT NULL
+- `display_code` VARCHAR(30) NOT NULL
 - `is_transition` BOOLEAN NOT NULL DEFAULT false
-- `status` controlled value NOT NULL — exact normal lifecycle values OPEN
-- `created_at` TIMESTAMPTZ NOT NULL
-- `updated_at` TIMESTAMPTZ NOT NULL
+- `status` VARCHAR(20) NOT NULL with no database default (`DRAFT`, `OPEN`, `CLOSED`)
+- `created_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
+- `updated_at` TIMESTAMPTZ NOT NULL DEFAULT `CURRENT_TIMESTAMP`
 
 **Column meanings and constraints**
 
@@ -834,9 +923,10 @@ Finalized invoices preserve the actual seller legal name, GSTIN, seller address,
 - Gaps are not prohibited by an unconditional database constraint. A gap is a configuration/workflow issue: a transaction date must resolve to exactly one FY, otherwise the system may propose/create the expected FY or block until setup is completed according to later workflow rules.
 - `display_code` is the required human-readable label and is unique per Company through `UNIQUE (company_id, display_code)`. Dates remain the source of truth, and different Companies may reuse the same label.
 - `is_transition` explicitly preserves that an actual period is short/transitional. Do not infer this later by comparing historical dates with current fiscal settings.
-- `status` is retained for the normal Financial Year lifecycle, but its exact values remain OPEN. Financial Year status is not accounting close status and is not accounting lock status; `CLOSED` and `LOCKED` are not approved here.
+- `status` uses the normal lifecycle `DRAFT` → `OPEN` → `CLOSED`. `FUTURE` is not stored; temporal position is derived from dates. Financial Year status remains separate from Accounting-period close/lock and from invoice/receivable settlement state.
 - `created_at` and `updated_at` record current-row timestamps.
 - Do not add `is_current`, `is_closed`, or `is_locked`. Applicable FY is resolved from the transaction date; close/lock belongs to future Accounting-period design.
+- Same-Company overlap is protected race-safely by a PostgreSQL GiST exclusion constraint over inclusive date ranges, using the standard `btree_gist` extension for Company UUID equality.
 
 **Relationships**
 - Company 1:N Financial Years
@@ -882,16 +972,19 @@ Finalized invoices preserve the actual seller legal name, GSTIN, seller address,
 - `name` is the required, non-blank human-readable Currency name and is not relational identity.
 - `symbol` is optional and is not unique because multiple currencies can share a symbol and displays need not use one.
 - `minor_units` explicitly records normal decimal precision and must be between 0 and 4. It has no default because reference data must not silently assume two decimal places.
-- `status` is `ACTIVE` or `INACTIVE`. Active rows are available for new configuration; historically used inactive currencies are retained rather than casually deleted.
-- `created_at` and `updated_at` record current-row timestamps; they do not replace generic Audit history.
+- `status` is `ACTIVE` or `INACTIVE` with no database default. Active rows are available for new configuration; historically used inactive currencies are retained rather than casually deleted.
+- `created_at` and `updated_at` use PostgreSQL insert defaults. Application update paths own later `updated_at` changes; no update trigger is used.
 - Do not add `tenant_id` or `company_id`; this is shared/platform-managed reference data.
 
 **Physical constraints**
 
 - PRIMARY KEY (`code`).
 - CHECK canonical three-character uppercase alphabetic `code` format.
+- CHECK non-blank `name`; when `symbol` is present it must not be blank/whitespace-only.
 - CHECK (`minor_units BETWEEN 0 AND 4`).
 - Controlled `status` values: `ACTIVE`, `INACTIVE`.
+- No name/symbol/status indexes or other speculative indexes; only the primary-key index is required initially.
+- No seed catalogue or reference-data loader is included in this migration.
 
 **Relationships**
 - Referenced by Company base currency, reporting currencies, AR currencies, bank accounts and FX rates
@@ -999,6 +1092,10 @@ Finalized invoices preserve the actual seller legal name, GSTIN, seller address,
 ---
 
 ## 14. `company_bank_accounts` — KEEP
+
+**Owner:** Core / Shared Company Configuration
+
+**Physical table:** `core.company_bank_accounts`
 
 **What data is stored**
 - Company's bank accounts, currency and account type, including EEFC/foreign-currency accounts.
@@ -1173,7 +1270,7 @@ Regardless of policy default, finalized transactions/documents preserve the actu
 - UNIQUE (`country_code`, `code`).
 - `status` is controlled as `ACTIVE` or `INACTIVE`; referenced rows are inactivated rather than deleted.
 - `code` is trimmed/canonical controlled identity and `name` is a required non-blank display label.
-- `country_code` is the current ISO-style two-character jurisdiction code. Its exact Countries-table FK target remains OPEN because the canonical Country master is deferred; no conflicting FK is invented.
+- `country_code` is the current ISO-style two-character jurisdiction code. The approved target is `core.countries.code`; the future Tax Type implementation must sequence reference-data provisioning and FK enforcement safely rather than adding that table in Migration 004.
 - No business defaults are defined for these columns.
 - CGST, SGST, and IGST are not Tax Types; they are GST statutory COMPONENT codes.
 - Do not store HSN/SAC, percentage rates, treatments, statutory sections/components, thresholds, or calculation rules here.
@@ -1269,7 +1366,7 @@ Regardless of policy default, finalized transactions/documents preserve the actu
 - CHECK (`rate_percent >= 0 AND rate_percent <= 100`).
 - UNIQUE (`tax_type_id`, `country_code`, `rate_percent`).
 - `status` is controlled as `ACTIVE` or `INACTIVE`; historically referenced rates are not deleted.
-- `country_code` has current ISO-style jurisdiction semantics; exact Countries-table FK target remains OPEN.
+- `country_code` references `core.countries.code` with restrictive/no-cascade behavior.
 - No business defaults are defined, and financial rates never use floating-point types.
 - Numeric `0%` does not imply `NIL_RATED`, `EXEMPT`, or `NON_GST`; treatment remains separate.
 - This table stores reusable ordinary item/supply percentage-rate identities, currently primarily GST HSN/SAC rates. It does not store every percentage in the system, statutory SECTION/case rates, thresholds, or transaction results.
@@ -1359,7 +1456,7 @@ Regardless of policy default, finalized transactions/documents preserve the actu
 - UNIQUE (`tax_type_id`, `country_code`, `code`).
 - `status` is controlled as `ACTIVE` or `INACTIVE`; referenced treatments are inactivated rather than deleted.
 - Current confirmed GST codes are `TAXABLE`, `NIL_RATED`, `EXEMPT`, and `NON_GST`; no additional code such as `ZERO_RATED` is added.
-- `country_code` has current ISO-style jurisdiction semantics; exact Countries-table FK target remains OPEN.
+- `country_code` references `core.countries.code` with restrictive/no-cascade behavior.
 - No business defaults are defined.
 - Treatment describes tax nature, not a percentage. Do not infer it only from `rate_percent` or store rates/calculation logic here.
 
@@ -1653,7 +1750,7 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 
 `business_segment_id`
 - Type: UUID; Nullability: NULL; Default: none; FK: `cost_center_business_segments.id`.
-- Why: optionally assigns the Service Type to at most one current same-Company Business Segment without a mapping table.
+- Why: optionally assigns the Service Type to one same-Company Business Segment reporting bucket.
 
 `tcs_check_required`
 - Type: BOOLEAN; Nullability: NOT NULL; Default: `false`.
@@ -1673,10 +1770,11 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 
 **Constraints and business validation**
 - Partial UNIQUE (`company_id`, `code`) WHERE `code IS NOT NULL`.
-- `service_category_id`, SAC, and optional Business Segment must belong to the same Company; backend/database protection must prevent cross-Company references.
+- `service_category_id` and SAC must belong to the same Company; backend/database protection must prevent cross-Company references.
 - `company_hsn_sac_code_id` must have `classification_type = SAC`.
 - `selected_tax_rate_id` must be a GST Tax Rate and currently eligible for the selected SAC through `company_hsn_sac_tax_rates`.
 - `tax_treatment_id` must identify an applicable GST Tax Treatment for current AR use.
+- `business_segment_id`, when populated, must reference a Business Segment owned by the same Company; a direct nullable FK limits the Service Type to at most one current Segment.
 - Pricing fields do not belong on this catalogue table.
 - Historically used Service Types are normally inactivated rather than deleted.
 
@@ -1684,13 +1782,13 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 - Category 1:N Service Types
 - Company SAC 1:N Service Types; the referenced row must have `classification_type = SAC`
 - Tax Treatment 1:N Service Types
-- Business Segment 1:N Service Types under current one-segment rule
+- Business Segment 1:N Service Types (nullable from Service Type)
 
 **Why this table exists**
 1. Service Type is the lowest billable service identity used by SO/Billing.
 2. Commercial name and selected SAC are Company-configured while the SAC retains its statutory meaning.
 3. `selected_tax_rate_id` stores the one current/default eligible rate used to prefill Billing without asking users on every invoice; it must remain valid for `company_hsn_sac_code_id`.
-4. `business_segment_id` avoids an unnecessary mapping table when one Service Type belongs to max one active Segment.
+4. The optional direct Business Segment relationship supports current management reporting without a mapping table.
 5. TCS mandatory-check flag can force an applicability decision without automatically charging TCS.
 6. Removing it would leave no stable service item for pricing, tax classification or reporting.
 
@@ -1865,7 +1963,7 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 
 `business_segment_id`
 - Type: UUID; Nullability: NULL; Default: none; FK: `cost_center_business_segments.id`.
-- Why: optionally assigns the SKU to at most one current same-Company Business Segment without a mapping table.
+- Why: optionally assigns the SKU to one same-Company Business Segment reporting bucket.
 
 `tcs_check_required`
 - Type: BOOLEAN; Nullability: NOT NULL; Default: `false`.
@@ -1885,23 +1983,24 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 
 **Constraints and business validation**
 - UNIQUE (`company_id`, `sku_code`).
-- `product_id`, HSN, and optional Business Segment must belong to the same Company; backend/database protection must prevent cross-Company references.
+- `product_id` and HSN must belong to the same Company; backend/database protection must prevent cross-Company references.
 - `company_hsn_sac_code_id` must have `classification_type = HSN`.
 - `selected_tax_rate_id` must be a GST Tax Rate and currently eligible for the selected HSN through `company_hsn_sac_tax_rates`.
 - `tax_treatment_id` must identify an applicable GST Tax Treatment for current AR use.
+- `business_segment_id`, when populated, must reference a Business Segment owned by the same Company; a direct nullable FK limits the SKU to at most one current Segment.
 - Historically used SKUs are normally inactivated rather than deleted.
 
 **Relationships**
 - Product 1:N SKUs
 - Company HSN 1:N SKUs; the referenced row must have `classification_type = HSN`
 - Tax Treatment 1:N SKUs
-- Business Segment 1:N SKUs under current one-segment rule
+- Business Segment 1:N SKUs (nullable from SKU)
 
 **Why this table exists**
 1. SKU is the actual billable goods identity.
 2. It owns SKU code/UOM and final HSN selection rather than Product Category.
 3. `selected_tax_rate_id` stores the one current/default eligible rate used to prefill Billing; it must remain valid for `company_hsn_sac_code_id`.
-4. Direct Business Segment FK is simpler than a mapping table under the one-segment rule.
+4. The optional direct Business Segment relationship supports current management reporting without a mapping table.
 5. TCS applicability-check behavior can be configured per SKU.
 6. Removing it would make Product too coarse for variants, HSN/UOM or customer commercial lines.
 
@@ -2006,13 +2105,12 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 - UNIQUE (`company_id`, `name`).
 - Partial UNIQUE (`company_id`, `code`) WHERE `code IS NOT NULL`.
 - CHECK (`status IN ('ACTIVE', 'INACTIVE')`).
-- `service_types.business_segment_id` and `skus.business_segment_id` remain direct nullable FKs. Each Service Type or SKU therefore has at most one current Business Segment.
-- A referenced Segment must belong to the same Company as its Service Type or SKU. This ownership invariant requires backend/database enforcement and must not rely on frontend validation alone; the exact FK mechanism follows the repository's eventual same-Company enforcement convention.
+- Service Type and SKU each store a nullable direct `business_segment_id`; composite same-Company FKs prevent cross-Company references and each catalogue row can belong to at most one current Business Segment.
 - This table stores the current stable master identity and is not effective-dated. Historically used Business Segments are inactivated rather than deleted; finalized historical references remain unchanged.
 
 **Relationships**
 - Company 1:N Business Segment Cost Centers
-- Business Segment 1:N Service Types/SKUs under current direct-FK design
+- Business Segment 1:N Service Types and 1:N SKUs through their nullable direct `business_segment_id` columns.
 
 **Why this table exists**
 1. Management wants Business Segment itself to function as one cost-center/reporting basis.
@@ -2027,21 +2125,21 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 ## 32. `cost_center_teams` — KEEP
 
 **What data is stored**
-- Company Teams used directly as reporting/cost-center buckets.
+- Company-owned Team-based cost-center reporting buckets. A bucket may group multiple actual Company Teams but is not itself the operational Team master.
 
 **Columns and purpose**
 
 `id`
 - Type: UUID; Nullability: NOT NULL; Default: none; Key: PRIMARY KEY.
-- Why: stable identity for the Company business Team while membership changes over time.
+- Why: stable identity for the Team-based reporting bucket independently of the actual Teams assigned to it.
 
 `company_id`
 - Type: UUID; Nullability: NOT NULL; Default: none; FK: `companies.id`.
-- Why: identifies the Company that owns the Team and defines its Company scope.
+- Why: identifies the Company that owns the reporting bucket and defines its Company scope.
 
 `name`
 - Type: VARCHAR(150); Nullability: NOT NULL; Default: none; Constraint: UNIQUE with Company.
-- Why: required business-facing Team name.
+- Why: required business-facing name for the reporting bucket, such as `Regulatory Operations`.
 
 `code`
 - Type: VARCHAR(50); Nullability: NULL; Default: none; Constraint: partial UNIQUE with Company when non-null.
@@ -2049,41 +2147,100 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 
 `status`
 - Type: VARCHAR(20); Nullability: NOT NULL; Default: none; Controlled values: `ACTIVE`, `INACTIVE`.
-- Why: controls current Team availability without deleting historical identity.
+- Why: controls current reporting-bucket availability without deleting historical identity.
 
 `created_at`
 - Type: TIMESTAMPTZ; Nullability: NOT NULL; Default: none.
-- Why: records when the Team row was created.
+- Why: records when the reporting bucket was created.
 
 `updated_at`
 - Type: TIMESTAMPTZ; Nullability: NOT NULL; Default: none.
-- Why: records when the current row was last updated.
+- Why: records when the reporting bucket was last updated.
 
 **Constraints and lifecycle**
 - UNIQUE (`company_id`, `name`).
 - Partial UNIQUE (`company_id`, `code`) WHERE `code IS NOT NULL`.
 - CHECK (`status IN ('ACTIVE', 'INACTIVE')`).
-- A Team is a Company business identity, not an IAM group. IAM/Keycloak authenticates users; ERP owns the business Team membership history.
-- This table stores the current stable Team identity and is not itself effective-dated. Historically used Teams are inactivated rather than deleted; finalized historical references remain unchanged. Membership changes do not replace or duplicate Team identity.
+- This table is a reporting identity, not an IAM group and not the operational Team master.
+- One Cost Center Team may group multiple actual Teams. An actual Team may reference zero or one Cost Center Team, so no Team-to-bucket mapping table is used.
+- An assigned actual Team and its Cost Center Team must belong to the same Company. This invariant requires database/backend enforcement and must not rely on frontend validation alone; the exact FK mechanism follows the repository's same-Company enforcement convention.
+- This table stores the current stable reporting-bucket identity and is not effective-dated. Historically used buckets are inactivated rather than deleted; finalized historical references remain unchanged.
+- Mandatory assignment of every actual Team to a Cost Center Team is not required. Whether future Company activation/readiness requires complete coverage remains OPEN.
 
 **Relationships**
 - Company 1:N Cost-Center Teams
-- Team 1:N Team Memberships
+- Cost-Center Team 1:N actual `teams`
 
 **Why this table exists**
-1. Team itself is an agreed reporting/cost-center basis.
-2. It avoids duplicating Team into a generic Cost Center master.
-3. It gives users/transactions a stable Team identity for reporting.
-4. Membership can change without changing Team identity.
-5. It supports future team-based invoice/SO/report filters.
-6. Removing it would leave team reporting dependent on free-text/IAM groups with no Company business identity.
+1. Management reporting may need one bucket, such as `Regulatory Operations`, to combine several operational Teams.
+2. It keeps the reporting grouping separate from actual Team identity and user membership history.
+3. It supports stable Team-based invoice/SO/report filters without introducing a generic Cost Center master.
+4. Actual Teams can move into or out of a reporting bucket without replacing either identity.
+5. Removing it would prevent several operational Teams from reporting under one approved Cost Center Team bucket.
+
+---
+
+## 32A. `teams` — KEEP
+
+**What data is stored**
+- Actual Company-owned operational Teams, distinct from Cost Center Team reporting buckets and external IAM groups.
+
+**Columns and purpose**
+
+`id`
+- Type: UUID; Nullability: NOT NULL; Default: none; Key: PRIMARY KEY.
+- Why: stable identity for the actual Company Team while membership and reporting-bucket assignment change over time.
+
+`company_id`
+- Type: UUID; Nullability: NOT NULL; Default: none; FK: `companies.id`.
+- Why: identifies the Company that owns the actual Team and defines its Company scope.
+
+`cost_center_team_id`
+- Type: UUID; Nullability: NULL; Default: none; FK: `cost_center_teams.id`.
+- Why: optionally assigns the actual Team to one Team-based cost-center reporting bucket.
+
+`name`
+- Type: VARCHAR(150); Nullability: NOT NULL; Default: none; Constraint: UNIQUE with Company.
+- Why: required business-facing operational Team name, such as `BIS Team`.
+
+`status`
+- Type: VARCHAR(20); Nullability: NOT NULL; Default: none; Controlled values: `ACTIVE`, `INACTIVE`.
+- Why: controls current Team availability without deleting historical identity or membership history.
+
+`created_at`
+- Type: TIMESTAMPTZ; Nullability: NOT NULL; Default: none.
+- Why: records when the actual Team was created.
+
+`updated_at`
+- Type: TIMESTAMPTZ; Nullability: NOT NULL; Default: none.
+- Why: records when the actual Team was last updated.
+
+**Constraints and lifecycle**
+- UNIQUE (`company_id`, `name`).
+- CHECK (`status IN ('ACTIVE', 'INACTIVE')`).
+- `cost_center_team_id` is nullable: an actual Team may be unassigned or may belong to one Cost Center Team, but never more than one in the current scope.
+- The referenced Cost Center Team must belong to the same Company as the actual Team. This invariant requires database/backend enforcement and must not rely on frontend validation alone; the exact FK mechanism follows the repository's same-Company enforcement convention.
+- The direct nullable FK implements the approved 1:N relationship. No Team-to-Cost-Center-Team mapping table is introduced.
+- An actual Team is an ERP Company business identity, not an IAM group. IAM/Keycloak authenticates users; ERP owns Team membership history.
+- Historically used Teams are inactivated rather than deleted; membership and finalized transaction history remain unchanged.
+
+**Relationships**
+- Company 1:N actual Teams
+- Cost-Center Team 1:N actual Teams
+- Actual Team 1:N Team Memberships
+
+**Why this table exists**
+1. Operational Team identity and Team-based cost-center grouping are different business concepts.
+2. One reporting bucket may group several actual Teams without collapsing them into one Team.
+3. User membership history belongs to the actual Team rather than the reporting bucket.
+4. The nullable direct relationship permits uncovered Teams without creating an M:N mapping structure.
 
 ---
 
 ## 33. `team_memberships` — KEEP
 
 **What data is stored**
-- Which user belongs to which cost-center Team and during what period.
+- Which user belongs to which actual Company Team and during what period.
 
 **Columns and purpose**
 
@@ -2091,9 +2248,9 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 - Type: UUID; Nullability: NOT NULL; Default: none; Key: PRIMARY KEY.
 - Why: stable identity for one effective-dated user-to-Team membership period.
 
-`cost_center_team_id`
-- Type: UUID; Nullability: NOT NULL; Default: none; FK: `cost_center_teams.id`.
-- Why: identifies the Company-owned Team to which the user belongs.
+`team_id`
+- Type: UUID; Nullability: NOT NULL; Default: none; FK: `teams.id`.
+- Why: identifies the actual Company-owned Team to which the user belongs. Users do not belong directly to Cost Center Team reporting buckets.
 
 `user_subject_id` — **physical field OPEN**
 - Preferred candidate: VARCHAR(255); Nullability: NOT NULL; Default: none.
@@ -2123,21 +2280,21 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 **Constraints and lifecycle**
 - CHECK (`valid_to IS NULL OR valid_to >= valid_from`).
 - CHECK (`status IN ('ACTIVE', 'INACTIVE')`).
-- Business rule: one active Team membership per user within the applicable Company scope. A user may belong to multiple Companies.
+- Business rule: one active actual-Team membership per user within the applicable Company scope. A user may belong to multiple Companies.
 - Exact PostgreSQL overlap/exclusion or uniqueness enforcement remains OPEN until the physical user reference and Company/user membership scope are frozen; no speculative constraint is introduced.
-- Team Company scope comes from `cost_center_teams.company_id`; the membership applies within that Team's Company.
+- Team Company scope comes from `teams.company_id`; the membership applies within that actual Team's Company.
 - When a user moves Teams, close the prior row with `valid_to` and create a new row. Do not overwrite or delete historical membership.
 
 **Relationships**
-- Cost-Center Team 1:N Memberships
+- Actual Team 1:N Memberships
 - IAM User 1:N Membership histories
 
 **Why this table exists**
-1. Team identity and user membership are different concepts.
+1. Actual Team identity and user membership are different concepts.
 2. A Team can contain many users.
 3. Membership changes over time while historical reporting may need old assignments.
 4. Keycloak can authenticate the user, but Company business Team membership belongs to ERP domain data.
-5. It supports the current rule of one active Team membership at the agreed scope once that scope is frozen.
+5. It supports the current rule of one active actual-Team membership at the agreed scope once that scope is frozen.
 6. Removing it would force user IDs directly into Team columns or lose membership history.
 
 ---
@@ -2163,7 +2320,7 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 
 `team_enabled`
 - Type: BOOLEAN; Nullability: NOT NULL; Default: false.
-- Why: enables Team setup and use for this Company.
+- Why: enables Cost Center Team bucket setup, actual Team assignment, and Team-based reporting for this Company.
 
 `location_enabled`
 - Type: BOOLEAN; Nullability: NOT NULL; Default: false.
@@ -3118,8 +3275,13 @@ updated_at TIMESTAMPTZ NOT NULL
 
 - Company 1:N Account Hierarchies.
 - Account Hierarchy 1:N Account Groups, Group Relationships, and GL Account Group Mappings.
-- Only one primary `ACCOUNTING` hierarchy per Company under the current rule.
-- `hierarchy_name` is unique within Company and purpose; inactive hierarchies remain referenceable.
+- `purpose_code` is currently restricted to `ACCOUNTING`; `MANAGEMENT` remains future scope.
+- `status` is exactly `ACTIVE` or `INACTIVE` and has no default.
+- Only one active primary `ACCOUNTING` hierarchy is allowed per Company, enforced by a partial unique index on `company_id` where `purpose_code = 'ACCOUNTING' AND status = 'ACTIVE' AND is_primary = true`.
+- An inactive historical primary retains its `is_primary` value and does not block a replacement.
+- `hierarchy_name` must be non-blank and is case-sensitively unique on `(company_id, purpose_code, hierarchy_name)`; inactive hierarchies remain referenceable.
+- `(company_id, id)` is unique so dependent tables can enforce same-Company hierarchy ownership with composite foreign keys.
+- IDs use the established `gen_random_uuid()` database default. `created_at` and `updated_at` use the established `CURRENT_TIMESTAMP` insert default.
 - Company ownership is mandatory and deletion is restricted once referenced.
 
 ### Why do we need this table?
@@ -3169,10 +3331,19 @@ updated_at TIMESTAMPTZ NOT NULL
 ### Relationships and constraints
 
 - Company 1:N Account Groups; Account Hierarchy 1:N Account Groups.
-- `company_id` must match the referenced hierarchy's Company.
-- Group names/codes have reasonable hierarchy-level uniqueness where provided.
+- `company_id` must match the referenced hierarchy's Company, enforced by the composite FK `(company_id, hierarchy_id) -> account_hierarchies(company_id, id)` without a redundant independent `hierarchy_id` FK.
+- `status` is exactly `ACTIVE` or `INACTIVE` and has no default.
+- `group_name` must be non-blank and is case-sensitively unique on `(company_id, hierarchy_id, group_name)`.
+- `group_code` is optional, must be non-blank when supplied, and is case-sensitively unique on `(company_id, hierarchy_id, group_code)` when non-null; multiple null codes are allowed.
+- IDs use the established `gen_random_uuid()` database default. `created_at` and `updated_at` use the established `CURRENT_TIMESTAMP` insert default.
 - No `parent_group_id`, balance, posting flag, or GL Account columns are stored here.
 - Used groups are made inactive; referenced groups use `ON DELETE RESTRICT`.
+- A Group cannot be changed to `INACTIVE` while it has a current-effective or
+  future-effective GL placement, or while it is the parent in a
+  current-effective or future-effective child-Group relationship. Historical
+  rows ending before the applicable inactivation point do not block the change.
+  The lifecycle operation must never restructure or rewrite relationships
+  automatically.
 
 ### Why do we need this table?
 
@@ -3201,40 +3372,51 @@ Select hierarchy → create groups → arrange them through effective-dated grou
 
 **Used in flow:** Accounting hierarchy maintenance / historical reporting
 
-### What data is stored
+### Approved business contract
 
-Effective-dated parent-child placement of an Account Group within one hierarchy, including root periods where `parent_group_id` is null.
+This structure records effective-dated parent-child placement of an Account Group
+within the Company's `ACCOUNTING` hierarchy.
 
-### Important columns
+- One Group has zero or one effective parent on a date; multiple effective parents
+  are prohibited.
+- A root Group is represented by the absence of an effective relationship row. A
+  child-to-null relationship row is not part of the approved business model.
+- Absence of an effective parent can also mean draft/incomplete setup. A later
+  validation contract must distinguish intentional roots from incomplete
+  hierarchy configuration.
+- Parent and child belong to the same Company and hierarchy. Self-parentage and
+  effective cycles such as A → B → C → A are prohibited.
+- Reparenting preserves history by ending the old placement and creating the new
+  placement. A normal move cannot accidentally introduce a business-date gap;
+  moving to root is a separate explicit operation.
+- Sibling presentation is alphabetical by Group name for MVP. No custom-order
+  column is approved. Conceptual depth is unrestricted; no maximum is approved.
+- Discontinuing a Group with children requires an effective-dated move of those
+  children to its current parent, another Group, a new Group, or root. History is
+  not overwritten.
+- Changing a Group to `INACTIVE` is blocked while it remains the parent in a
+  current-effective or future-effective child-Group relationship. The user must
+  explicitly relocate or date-end those relationships first. Ended historical
+  relationships remain stored and do not block inactivation.
+- Historical relationship references are restrictive rather than cascading.
 
-```text
-id UUID PK
-company_id UUID NOT NULL FK -> companies
-hierarchy_id UUID NOT NULL FK -> account_hierarchies
-child_group_id UUID NOT NULL FK -> account_groups
-parent_group_id UUID NULL FK -> account_groups
-valid_from DATE NOT NULL
-valid_to DATE NULL
-created_at TIMESTAMPTZ NOT NULL
-created_by UUID NULL
-```
+### Candidate physical database design — not frozen
 
-### Relationships and constraints
-
-- Parent and child must belong to the same Company and referenced hierarchy.
-- `child_group_id <> parent_group_id`; cycles such as A → B → C → A are rejected.
-- `valid_to IS NULL OR valid_to >= valid_from`.
-- Effective ranges for one `(hierarchy_id, child_group_id)` must not overlap; one child has at most one effective parent at a date.
-- Root placement uses `parent_group_id = NULL`.
-- PostgreSQL `daterange` plus `EXCLUDE USING GiST` is the preferred implementation direction for overlap prevention; backend validation also checks cycles and scope. No migration is defined here.
-- Referenced rows use `ON DELETE RESTRICT`.
+A future physical table is expected to need a relationship identity, explicit
+Company and hierarchy scope, a child Group, a parent Group present on every stored
+relationship row, an effective interval, and audit metadata. Exact column names,
+PostgreSQL datatypes, nullability/defaults, key shapes, interval bounds, indexes,
+overlap enforcement, cycle enforcement, and division between database and service
+validation remain unresolved. `daterange`/GiST and composite same-scope foreign
+keys remain candidates, not an approved migration contract.
 
 ### Why do we need this table?
 
 1. Group reorganizations may start at a Financial Year boundary or any approved date.
 2. Historical reports must reproduce the hierarchy effective at that date.
 3. Parent placement is temporal and does not belong permanently on `account_groups`.
-4. Root periods are represented without fake parent groups.
+4. Root periods are inferred from the absence of an effective parent relationship,
+   without fake parent groups or artificial null-parent rows.
 5. Non-overlap provides one deterministic parent per hierarchy/date.
 6. Cycle prevention protects traversal and reporting.
 
@@ -3248,7 +3430,9 @@ KEEP as the sole parent-placement structure for Account Groups.
 
 ### Flow
 
-Choose child group → choose parent/root and effective dates → validate Company/hierarchy/cycle/overlap → preserve superseded relationship.
+Choose child group → choose parent or explicit Move to Root and effective date →
+validate Company/hierarchy/cycle/overlap and gap behavior → preserve superseded
+relationship.
 
 ## 50. `gl_accounts` — KEEP
 
@@ -3316,40 +3500,129 @@ Create/import stable GL Account → place it in a hierarchy through a dated mapp
 
 **Used in flow:** GL placement / historical accounting and management reporting
 
-### What data is stored
+### Approved business contract
 
-Effective-dated placement of one stable GL Account inside an Account Group for one hierarchy.
+This structure records effective-dated placement of one stable GL Account either
+inside an Account Group or intentionally at the hierarchy root, without changing
+the posting identity.
 
-### Important columns
+- The three approved states are: no effective row means unplaced; an effective row
+  with `account_group_id` means placed in that Group; and an effective row with
+  `account_group_id = NULL` means intentionally placed at hierarchy root. A null
+  Group in an existing row never means unplaced.
+- In the current `ACCOUNTING` hierarchy, one GL Account has at most one effective
+  placement on a date, regardless of whether the placement is in a Group or at
+  root. Absence of a row is allowed for draft/incomplete configuration and
+  restructuring.
+- GL Account and hierarchy must belong to the placement Company. When a Group is
+  present, it must belong to the same Company and referenced hierarchy.
+- Placement is a separate relationship. `gl_accounts` does not store a permanent
+  Group or parent FK.
+- A placement change retains the old effective relationship and creates the new
+  one. Moving a GL or its containing Group never rewrites the GL Account recorded
+  on a finalized transaction.
+- Account Groups remain structural/non-posting. A posting GL Account is never
+  converted to a Group when the Company introduces more detailed child GLs.
+- A Group cannot be made `INACTIVE` while referenced by current-effective or
+  future-effective GL placements. The user must explicitly relocate or date-end
+  them first. Ended historical placements do not block inactivation, and no
+  lifecycle action automatically creates, closes, moves, or rewrites placements.
+- Historical references are restrictive rather than cascading.
+
+### Final physical contract for future Migration 0018
 
 ```text
-id UUID PK
-company_id UUID NOT NULL FK -> companies
-hierarchy_id UUID NOT NULL FK -> account_hierarchies
-gl_account_id UUID NOT NULL FK -> gl_accounts
-account_group_id UUID NOT NULL FK -> account_groups
+id UUID NOT NULL DEFAULT gen_random_uuid()
+company_id UUID NOT NULL
+hierarchy_id UUID NOT NULL
+gl_account_id UUID NOT NULL
+account_group_id UUID NULL
 valid_from DATE NOT NULL
 valid_to DATE NULL
-created_at TIMESTAMPTZ NOT NULL
-created_by UUID NULL
+created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
 
-### Relationships and constraints
+- `id` is the primary key, named `pk_gl_account_group_mappings`.
+- `account_group_id` is deliberately nullable. In an existing row, null means an
+  intentional root placement. Unplaced is represented only by absence of an
+  effective row.
+- The restrictive foreign keys are:
+  - `fk_gl_account_group_mappings_company_id_companies`:
+    `(company_id) -> core.companies(id)`;
+  - `fk_gl_account_group_mappings_company_hierarchy`:
+    `(company_id, hierarchy_id) -> core.account_hierarchies(company_id, id)`;
+  - `fk_gl_account_group_mappings_company_gl_account`:
+    `(company_id, gl_account_id) -> core.gl_accounts(company_id, id)`; and
+  - `fk_gl_account_group_mappings_company_hierarchy_group`:
+    `(company_id, hierarchy_id, account_group_id) ->`
+    `core.account_groups(company_id, hierarchy_id, id)`.
+- Every FK uses `ON DELETE NO ACTION`. Under PostgreSQL's default composite-FK
+  `MATCH SIMPLE` behavior, a null `account_group_id` does not require a Group
+  target. The separate Company and hierarchy FKs and the GL composite FK still
+  require a valid Company, hierarchy, and same-Company GL for a root row.
+- Existing `uq_gl_accounts_company_id_id`,
+  `uq_account_hierarchies_company_id_id`, and
+  `uq_account_groups_company_hierarchy_id` provide every required composite-FK
+  target. Migration 0018 must add no supporting uniqueness to those tables.
+- `ck_gl_account_group_mappings_valid_range` enforces
+  `valid_to IS NULL OR valid_to >= valid_from`. Dates are inclusive, null
+  `valid_to` is open-ended, and one-day periods are valid.
+- `ex_gl_account_group_mappings_gl_hierarchy_period_overlap` uses `btree_gist`
+  and excludes overlap on `(gl_account_id WITH =, hierarchy_id WITH =,
+  daterange(valid_from, valid_to, '[]') WITH &&)`. It deliberately excludes
+  `account_group_id`, so root/Group and root/root overlaps are rejected. It
+  includes `hierarchy_id` so a future separately approved hierarchy purpose can
+  place the same stable GL independently. `company_id` is unnecessary because
+  `gl_account_id` is globally unique and Company scope is enforced by the
+  composite FK. Migration 0018 must use the existing `btree_gist` extension and
+  must neither create nor drop it.
+- The only additional index is
+  `ix_gl_account_group_mappings_company_hierarchy_group_dates` on
+  `(company_id, hierarchy_id, account_group_id, valid_from, valid_to)`. PostgreSQL
+  B-tree indexes retain null keys, so it supports Group-child lookup and root-level
+  lookup (`account_group_id IS NULL`) as well as hierarchy loading. The exclusion
+  index already supports GL/hierarchy/date lookup and overlap enforcement; no
+  duplicate GL-history index is approved.
+- Database constraints own identity, Company/hierarchy scope, valid ranges,
+  non-overlap, and restrictive deletion. Creation/movement services must also
+  validate active/date-applicable masters and provide useful errors.
+- The future Migration 0018 downgrade drops only
+  `core.gl_account_group_mappings` and its table-owned constraints/indexes. It
+  preserves every Migration 0017 object and row, does not drop `btree_gist`, and
+  does not alter `gl_accounts`, `account_groups`, or their supporting uniqueness.
 
-- GL Account, Group, and Hierarchy must belong to the same Company.
-- Group must belong to the referenced Hierarchy.
-- `valid_to IS NULL OR valid_to >= valid_from`.
-- Effective ranges for `(hierarchy_id, gl_account_id)` must not overlap; one GL has at most one Group per hierarchy/date.
-- The same GL may have a different effective placement in another hierarchy.
-- PostgreSQL `daterange` plus `EXCLUDE USING GiST` is the preferred overlap constraint; database scope constraints and backend validation are both required.
-- Historical references use `ON DELETE RESTRICT`.
+Group inactivation is a transactional service/business-lifecycle rule rather
+than a row-local database constraint. The service must reject inactivation if,
+at the applicable business date, any GL placement referencing the Group or any
+child-Group relationship for which it is the parent is current-effective or
+future-effective. Rows whose `valid_to` precedes that date are historical and do
+not block. Placement/relationship creation must likewise validate that its Group
+is eligible. Both operations must coordinate through the Group row/transaction
+so the check cannot race with a concurrent new relationship. No database trigger
+or automatic restructuring is approved.
+
+Approved transitions preserve all already-effective history:
+
+- Group -> Group: end the old row and create the new Group row.
+- Root -> Group: end the null-Group row and create the Group row.
+- Group -> Root: end the Group row and create a null-Group row.
+- Placed -> unplaced: end the existing row and create no replacement.
+- Unplaced -> root: create a row with `account_group_id = NULL`.
+- Unplaced -> Group: create a row with the selected Group UUID.
+
+Adjacent periods use consecutive inclusive dates; for example, an old row ending
+2027-03-31 and a replacement starting 2027-04-01 do not overlap. The multi-row
+move must be atomic in the future service, but gaps remain representable during
+draft/restructuring because no row means unplaced.
 
 ### Why do we need this table?
 
 1. GL placement can change without changing GL identity.
 2. Reorganization may apply from a Financial Year boundary or another effective date.
 3. Historical hierarchy remains reproducible.
-4. Accounting and Management hierarchies can place one GL differently.
+4. The relationship preserves an extension point for a separately approved future
+   Management hierarchy without duplicating a GL identity.
 5. Non-overlap gives deterministic placement at a date.
 6. It prevents permanent `account_group_id` storage on `gl_accounts`.
 
@@ -3359,11 +3632,13 @@ A direct Group FK on the GL would overwrite history and prevent multiple hierarc
 
 ### Current decision
 
-KEEP as the only GL-to-Group placement mechanism.
+KEEP as the only GL hierarchy-placement mechanism, including intentional root
+placement.
 
 ### Flow
 
-Select hierarchy/date → select stable GL → select Group → validate same Company/hierarchy and non-overlap → retain old placement.
+Select hierarchy/date → select stable GL → select Group or intentional root →
+validate same Company/hierarchy and non-overlap → retain old placement.
 
 ## 52. `revenue_gl_mappings` — KEEP
 
@@ -3520,6 +3795,45 @@ KEEP one default Receivable GL per Company. Expanded receivable routing is DEFER
 
 Set Company default Receivable GL → eligible Customer-Sale document finalizes → snapshot resolved receivable GL Account ID.
 
+## Future Account Determination — approved business direction, physical design deferred
+
+The product direction includes future effective-dated Account Determination using
+a controlled criterion vocabulary:
+
+- Goods: Product Category, SKU, and optional HSN.
+- Services: Service Category, Service Type, and optional SAC.
+- Transaction context: Supply Type, Company Location, and GST/GST-location
+  context.
+- Fallback: an applicable Company Default GL.
+
+A rule may combine one or more applicable criteria. Greater specificity wins,
+then explicit priority resolves otherwise equally specific eligible rules; any
+remaining ambiguity blocks resolution. Cost Centre is excluded. The design must
+not use an uncontrolled `dimension_name` / `dimension_value` bag, and Industry,
+Channel, Salesperson, Project, and Cost Centre are not approved criteria. Future
+criteria require deliberate product approval. SKU and service records do not gain
+a permanent `gl_account_id` for this resolver.
+
+This is an approved business direction only. No Account Determination table,
+column contract, datatype, key, index, priority representation, specificity
+representation, conflict constraint, API, or resolver is approved here. The
+meaning and scope of each Company-default fallback also remain to be frozen.
+
+This direction does not supersede current `revenue_gl_mappings`,
+`tax_gl_account_mappings`, `company_accounting_settings`, or direct Bank Account
+GL references. In particular, current Revenue GL resolution remains Supply Type
+plus optional HSN/SAC with specific-before-general precedence and no newly
+invented priority field. Any replacement, coexistence, or migration plan requires
+a later approved contract.
+
+Future rules change prospective account selection only. Finalized transactions
+retain their source GL Account IDs. Any current-year historical reporting
+restatement is distinct from an explicit accounting reclassification; both
+mechanisms, including journals, permissions, audit, and period behavior, remain
+OPEN/DEFERRED. A possible future transaction-level account override is likewise
+an OPEN AR transaction concern; if approved, it requires authorization, reason,
+and audit evidence and does not modify Company master configuration.
+
 ## Accounting database safety rules
 
 1. Use UUID primary keys and explicit Company ownership on every Company-scoped accounting table.
@@ -3533,7 +3847,7 @@ Set Company default Receivable GL → eligible Customer-Sale document finalizes 
 
 ## Import/export readiness — DEFERRED implementation
 
-The current design supports a future Company self-service import/export flow for Account Groups, GL Accounts, Group relationships, and GL-to-Group mappings. Internal relationships use UUIDs. An external file may use `account_code` plus Company/template context for matching, subject to an approved conflict/idempotency specification. No import/export table, SQL/VPS procedure, or template engine is introduced now.
+The current design supports a future Company self-service import/export flow for Account Groups, GL Accounts, Group relationships, and GL hierarchy placements. Internal relationships use UUIDs. An external file may use `account_code` plus Company/template context for matching, subject to an approved conflict/idempotency specification. No import/export table, SQL/VPS procedure, or template engine is introduced now.
 
 # 10. Shared File/Object Metadata
 
@@ -3621,11 +3935,12 @@ PostgreSQL financial transaction tables remain the structured financial truth; `
 # 11. Tables Removed / Moved Out of Company Configuration
 
 ## Removed / Merged / Replaced / Deferred
-- `cost_centers` — generic master not required in current Business Segment/Team/Location model.
+- `cost_centers` — generic master not required in the current explicit Business Segment, Cost Center Team, actual Team, and Location model.
 - `cost_center_types` — no generic Cost Center master, so type master is also unnecessary.
 - `cost_center_location_members` — direct `company_locations.cost_center_location_id` replaces it under current one-group-per-location rule.
 - `cost_center_policies` — renamed/simplified to `company_cost_center_settings`.
-- separate `business_segments` / `teams` names — renamed to `cost_center_business_segments` / `cost_center_teams` to show their current reporting role.
+- separate `business_segments` name — renamed to `cost_center_business_segments` to show its current reporting role.
+- Team-to-Cost-Center-Team mapping table — not introduced; nullable `teams.cost_center_team_id` implements the current one-bucket-per-Team rule directly.
 - `company_gst_registration_locations` — direct nullable `company_locations.gst_registration_id` under current 1:N rule.
 - `company_base_currency` — base currency is a direct Company FK.
 - separate `billing_currencies` and `payment_currencies` — merged into `company_ar_currencies` with purpose flags.
@@ -3660,7 +3975,7 @@ PostgreSQL financial transaction tables remain the structured financial truth; `
 
 1. **`supply_types`:** actual reference table or controlled enum? The vocabulary itself is confirmed.
 2. **FX policy details:** Receipt / Reporting effective-date, rate-date, stale-rate, and conversion behavior while keeping approved `fx_policies`.
-3. **Team membership scope:** one active Team per Tenant or per Company?
+3. **Team membership scope:** exact physical IAM subject reference and database enforcement of one active actual-Team membership within the applicable Company scope.
 4. **Company access:** every Tenant user sees every Company, or keep `company_user_memberships`?
 5. **Approval settings:** does approval behavior actually vary by Company/document type enough to justify `company_approval_settings`?
 6. **Numbering condition types:** which condition types are MVP vs later, while keeping the extensible condition model.
@@ -3678,8 +3993,8 @@ PostgreSQL financial transaction tables remain the structured financial truth; `
 # 13. Current Table Count Summary
 
 ### KEEP now / current design
-- Core/Shared foundation and statutory: 26 KEEP tables through `supply_types`, including the three approved generic Company legal-identifier tables, `company_location_versions`, and `gst_registration_types`, and excluding the remaining REVIEW entries and `cost_center_locations`
-- Catalogue/cost-center: 10 tables (`service_categories` through `company_cost_center_settings`, including `cost_center_locations`)
+- Core/Shared foundation and statutory: 28 KEEP tables through `supply_types`, including the three approved generic Company legal-identifier tables, `company_location_versions`, and `gst_registration_types`, and excluding the remaining REVIEW entries and `cost_center_locations`
+- Catalogue/cost-center: 11 tables (`service_categories` through `company_cost_center_settings`, including `cost_center_locations` and separate actual `teams`)
 - AR compliance/numbering/output: 6 tables (`company_luts` through `company_document_templates`)
 - Delivery/reminders: 4 tables (`email_provider_configs` through `reminder_schedule_rules`)
 - Company access: 1 table (`company_user_memberships`)
@@ -3692,7 +4007,7 @@ PostgreSQL financial transaction tables remain the structured financial truth; `
 - `supply_types`
 - `company_approval_settings`
 
-The Company Configuration review now contains **56 KEEP tables**, **4 REVIEW/conditional tables**, and **1 DEFERRED accounting-classification table (`account_types`)**. The point of this document is not to maximize table count. A table stays only when it represents a distinct business identity, repeated 1:N data, independent history, genuinely configurable Company behavior, or the approved shared metadata identity for externally stored binaries.
+The Company Configuration review now contains **59 KEEP tables**, **4 REVIEW/conditional tables**, and **1 DEFERRED accounting-classification table (`account_types`)**. The point of this document is not to maximize table count. A table stays only when it represents a distinct business identity, repeated 1:N data, independent history, genuinely configurable Company behavior, or the approved shared metadata identity for externally stored binaries.
 
 ---
 
@@ -4366,7 +4681,7 @@ ship_to_type nullable                      -- CUSTOMER_LOCATION / COMPANY_LOCATI
 ship_to_customer_location_id nullable FK -> customer_locations
 ship_to_company_location_id nullable FK -> company_locations
 business_segment_id nullable FK -> cost_center_business_segments
-team_id nullable FK -> cost_center_teams
+team_id nullable FK -> teams
 owner_user_id nullable
 engagement_manager_user_id nullable
 billing_method_code
@@ -4832,7 +5147,7 @@ due_date nullable
 bank_account_id UUID nullable FK -> company_bank_accounts
 receivable_gl_account_id UUID nullable FK -> gl_accounts
 business_segment_id UUID nullable FK -> cost_center_business_segments
-team_id UUID nullable FK -> cost_center_teams
+team_id UUID nullable FK -> teams
 document_sequence_id UUID nullable FK -> document_sequences
 document_number nullable until finalization
 current_revision_no
@@ -6273,7 +6588,7 @@ Future catalogue conversion → order quantity conversion → billing; absent fr
 
 ## `countries`
 
-**Status:** DEFER
+**Status:** SUPERSEDED — see current KEEP section 2A
 
 **Owner:** Core / Shared Reference
 
@@ -6310,7 +6625,7 @@ Country codes remain stored on masters and snapshots. Only database-managed labe
 
 ### Current decision
 
-Defer to a separate shared-reference decision; do not revisit approved Company columns.
+Superseded by the approved global `core.countries` contract in current section 2A. Existing Entity Type and Company Country FKs remain a separate post-loader retrofit.
 
 ### Flow
 
@@ -6318,7 +6633,7 @@ Future shared reference → address selection/validation; current flow stores co
 
 ## `states`
 
-**Status:** DEFER
+**Status:** SUPERSEDED — replaced by current KEEP `country_subdivisions` section 2B
 
 **Owner:** Core / Shared Reference
 
@@ -6358,7 +6673,7 @@ State codes and finalized snapshots remain present. Application-controlled refer
 
 ### Current decision
 
-Defer to a shared-reference specification.
+Superseded by the jurisdiction-neutral `core.country_subdivisions` contract in current section 2B. No separate State-only master is introduced.
 
 ### Flow
 
@@ -6396,7 +6711,11 @@ The following rules apply across the downstream candidate tables:
 26. Service Type must reference a Company SAC and SKU must reference a Company HSN. Their direct `selected_tax_rate_id` must be eligible through an active effective `company_hsn_sac_tax_rates` row for the transaction/setup date.
 27. HSN/SAC never determines CGST versus SGST versus IGST by itself. Seller GST context, Place of Supply and jurisdiction determine the applicable component; the finalized line snapshots code/description as required, Tax Treatment, applied rate, components and amounts.
 28. `gl_accounts` stores stable posting-account identity only. Groups, parents, hierarchy placements, classifications, and balances do not belong on that table.
-29. Account Group parentage and GL-to-Group placement are effective-dated, same-Company, same-hierarchy, non-cyclic, and non-overlapping. PostgreSQL exclusion constraints plus backend validation enforce these rules.
+29. Account Group parentage and GL hierarchy placement are effective-dated,
+same-Company, same-hierarchy, non-cyclic where parentage applies, and
+non-overlapping. A GL placement row with a null Group is intentional root
+placement; absence of a row is unplaced. PostgreSQL exclusion constraints plus
+backend validation enforce the applicable rules.
 30. Hierarchy changes do not change accounting amounts or resolved GL IDs. A future historical reclassification requires an explicit correction entry rather than master-data mutation.
 31. One default Receivable GL resolves through `company_accounting_settings`; eligible Customer-Sale documents snapshot it. No separate receivable-mapping table exists in current scope.
 32. Bank-to-GL association uses `company_bank_accounts.gl_account_id`; no separate bank mapping table exists.
@@ -6425,6 +6744,19 @@ Open decisions before downstream schema freeze are:
 
 | Date | Flow | Old table / design | Action | New table / design | Reason |
 |---|---|---|---|---|---|
+| 2026-09-21 | GL Account Hierarchy Placement / Group Inactivation | Root GL placement and mapping-table physical details were open; Group inactivation behavior with current/future children was unresolved | FREEZE BUSINESS AND PHYSICAL CONTRACT | Nullable-Group `core.gl_account_group_mappings` contract for a future Migration 0018; transactional Group-inactivation guard | Distinguish unplaced, Group-placed, and intentionally root-placed GLs; preserve inclusive effective history and same-scope integrity; prohibit overlap and automatic restructuring while keeping Account Determination separate |
+| 2026-09-21 | Accounting Hierarchy History / Future Account Determination | Candidate Group relationship represented root with a null-parent row; future account selection direction was not separated from current AR mappings | FREEZE BUSINESS CONTRACT / DEFER PHYSICAL DESIGN | Absence-of-parent-row root semantics; zero-or-one effective Accounting parent and GL placement; controlled future Account Determination direction | Preserve effective structure and stable posting identity without freezing relationship columns or a rule engine. Current Revenue, Tax, default Receivable, and Bank GL contracts remain unchanged; persistence, resolver, restatement, reclassification, and override behavior require later approval |
+| 2026-09-19 | Core Company Bank Account Foundation | Bank Account physical ownership remained Boundary TBD and no persistence existed | RESOLVE / CONFIRM KEEP / IMPLEMENT | `core.company_bank_accounts` | Migration 0013 establishes the reusable Company-owned Core/Shared Bank Account identity with one Currency per account, optional same-Company GL Account, active Billing-default uniqueness per Company/Currency, restrictive history, and no account-number uniqueness. AR selection APIs, routing, posting, duplicate policy, account-type vocabulary, identifier-format rules, and data-masking policy remain outside this slice |
+| 2026-09-19 | Company Cost Center Configuration Foundation | Approved Location Cost Center, Business Segment, Cost Center Team bucket, actual Team, and settings contracts were not yet implemented; catalogue and Location relationships were deferred | CONFIRM KEEP / IMPLEMENT | `core.cost_center_locations`, `core.cost_center_business_segments`, `core.cost_center_teams`, `core.teams`, `core.company_cost_center_settings`; nullable direct links from AR catalogue leaves and Company Locations | Migration 0010 implements only the three approved reporting bases and their direct same-Company relationships. It adds Tenant-safe configuration/create APIs without a generic Cost Center or dimension framework. IAM-backed `team_memberships`, assignment APIs, lifecycle transitions, authentication/authorization, and downstream posting/reporting remain deferred |
+| 2026-09-19 | Cost Center Team Reporting | `cost_center_teams` combined the actual Company Team and reporting bucket, and `team_memberships` linked users directly to that combined identity | SUPERSEDE / ADD KEEP | `cost_center_teams` reporting buckets; separate actual `teams` with nullable direct `cost_center_team_id`; `team_memberships.team_id` | One Team-based reporting bucket may group multiple operational Teams while each actual Team belongs to zero or one bucket. User/IAM membership history belongs to actual Teams. Same-Company enforcement is required, complete coverage remains optional, and no M:N or generic Cost Center mapping is introduced |
+| 2026-09-19 | Tax Reference and Company Catalogue Foundation | Catalogue implementation was blocked by absent mandatory tax references; Country FKs, lifecycle, setup-date behavior, and Business Segment timing were unresolved | UPDATE / CONFIRM KEEP / IMPLEMENT | `core.tax_types`, `core.company_hsn_sac_codes`, `core.tax_rates`, `core.company_hsn_sac_tax_rates`, `core.tax_treatments`; AR Service and Goods catalogue tables | Migrations 008 and 009 sequence controlled tax prerequisites before Company-owned catalogues. New catalogue records are ACTIVE, references must be active, setup does not evaluate rate applicability against today's date, same-Company hierarchy is protected, and Business Segment FKs remain deferred without placeholders |
+| 2026-09-18 | Company GST Registration Foundation | GST lifecycle, physical State/UT reference, draft Registration-Type nullability, GSTIN validation boundary, and Location integrity were unresolved | UPDATE / CONFIRM KEEP / IMPLEMENT | `core.gst_registration_types`, `core.company_gst_registrations`, `country_subdivisions.gst_state_code`, and nullable `company_locations.gst_registration_id` | Migration 007 adds country-scoped optional GST State codes, platform Registration-Type structure without seed values, DRAFT-first GST registrations with global GSTIN uniqueness and structural validation, and a composite Location FK enforcing same-Company/same-Subdivision mapping. Service creation requires an India Company, active provisioned Indian Subdivision, and matching GSTIN prefix; checksum, activation, defaults, LUT, Billing, and tax calculation remain deferred |
+| 2026-09-18 | Company Fiscal Settings / Financial Years | Typed pattern, universally valid recurring date, lifecycle values, normal generation API, and physical overlap enforcement were unresolved | UPDATE / CONFIRM KEEP / IMPLEMENT | `core.company_fiscal_settings` and `core.financial_years` | Migration 006 stores `APR_MAR`/`JAN_DEC`/`CUSTOM` with explicit recurring month/day, rejects dates unavailable in non-leap years, retains transition representation including one-day ranges, adds `DRAFT`/`OPEN`/`CLOSED`, and prevents same-Company overlap with a PostgreSQL exclusion constraint. Normal APIs configure the pattern and generate DRAFT annual instances without arbitrary dates |
+| 2026-09-18 | Core Company Location Foundation | Company Location Country/Subdivision representation remained OPEN and the wider KEEP contract depended on unimplemented GST and Cost Center modules | UPDATE / CONFIRM KEEP / IMPLEMENT | `core.company_locations` plus supporting Country/Subdivision composite uniqueness | Migration 005 implements required Company ownership, current address fields, fixed multi-purpose flags, required purpose, ACTIVE/INACTIVE lifecycle, mandatory Country, optional compatible Subdivision, and race-safe active Registered Office uniqueness. GST/default, Location Cost Center, address-version, activation, and replacement workflows remain outside this slice |
+| 2026-09-18 | Core Geographic Reference Masters | Country and State masters were deferred while existing tables stored controlled jurisdiction codes directly | UPDATE / CONFIRM KEEP / IMPLEMENT | `core.countries` and `core.country_subdivisions` | Migration 004 adds global platform-managed Country and ISO-compatible first-level subdivision masters with controlled lifecycle, timestamps, integrity checks, restrictive Country ownership, and only the required lookup index. It adds no seed data, existing Entity Type/Company Country FKs, Company subdivision relationship, or City/District/postal/address hierarchy |
+| 2026-09-18 | Core Company Identity Foundation | Currency provisioning details, Organisation code, Company Code scope/generation, Draft nullability, and same-Tenant Organisation enforcement were not fully frozen | UPDATE / CONFIRM KEEP / IMPLEMENT | `core.currencies`, `core.organisations`, `core.company_code_seq`, `core.next_company_code()`, and `core.companies` | One Migration 003 establishes the global Currency reference without seed data, code-free Tenant-owned Organisation grouping, database-enforced same-Tenant Company grouping, global concurrency-safe `COM` codes, explicit Draft lifecycle/nullability, restrictive FKs, and focused constraints/indexes. Activation services, profile history, Countries, Locations, fiscal/AR configuration, RLS, and generic frameworks remain outside this slice |
+| 2026-09-18 | Entity Type Master | Mandatory jurisdiction representation, UUID generation, code constraints, name uniqueness, status storage, and migration scope were not frozen | UPDATE / CONFIRM KEEP / IMPLEMENT | `core.entity_types` | PostgreSQL generates UUIDs; jurisdiction is stored directly as an uppercase two-letter `country_code` without a Countries FK; canonical code is jurisdiction-unique and format-constrained; name is required but not unique; status uses `VARCHAR(20)` plus CHECK with no default. Countries, timestamps, seed data, extra indexes, delete automation, RLS, Company, and identifier rules remain outside Migration 002 |
+| 2026-09-18 | Tenant Master | UUID, code allocation, status storage, timestamp defaults, deletion, and first-migration isolation details were not frozen | UPDATE / CONFIRM KEEP / IMPLEMENT | `core.tenants`, `core.tenant_code_seq`, and `core.next_tenant_code()` | PostgreSQL generates UUIDs and concurrency-safe sequential `TEN` codes; status uses `VARCHAR(20)` plus CHECK with no default; timestamps use insert defaults without an update trigger; blank checks, PK, and unique code are the only initial constraints/indexes. Hard-delete workflow, cascade, RLS, authentication, and memberships remain excluded |
 | 2026-09-17 | AR Compliance / Numbering / Payment Terms / Output Configuration | Tables 35–40 had incomplete physical definitions, stale blanket LUT wording, raw branding references, and unresolved numbering/template selection details | UPDATE / CONFIRM KEEP | Refined `company_luts`, `document_sequences`, `document_sequence_conditions`, `payment_terms`, `company_document_branding`, and `company_document_templates` | Exact PostgreSQL datatypes, nullability, defaults, keys, checks, history/lifecycle and same-Company invariants are documented. LUT is GST Registration + FY specific and required for current without-payment routes `EXPWOP`/`SEZWOP`; LUT upload remains outside MVP. Numbering uses independent atomic counters and controlled conditions without a generic rules engine; unresolved first-release condition/operator/priority semantics remain OPEN. Branding uses typed `stored_files` FKs, templates remain versioned server-side configuration, and final PDFs remain separate immutable artifacts |
 | 2026-09-17 | Shared File / Object Metadata | Domain-specific raw storage keys and branding references existed without one approved provider-neutral metadata identity | ADD / KEEP | `stored_files` | One Company-scoped UUID identity stores immutable object key, content hash, MIME type, size and optional original filename while bytes remain in Cloudflare R2 behind `ObjectStorage`. Domain tables later use typed FKs; signed URLs/provider fields and a generic attachment framework are excluded. Final artifact retention is preserved while detailed deletion/retention policy remains OPEN |
 | 2026-09-17 | Cost Center / Management Reporting | Five KEEP tables had compact physical definitions; current requirements still mentioned a fourth Custom Cost Center basis and category-level Segment assignment | UPDATE / CONFIRM KEEP | Refined `cost_center_locations`, `cost_center_business_segments`, `cost_center_teams`, `team_memberships`, and `company_cost_center_settings` for the three current bases | Exact PostgreSQL datatypes, nullability, defaults, keys, status checks, Company-scoped uniqueness, same-Company invariants, direct item/Location relationships, configuration-driven enablement, and effective Team history are documented. The physical IAM subject reference and exact one-active-membership enforcement remain OPEN; broader custom dimensions remain DEFERRED, and no generic accounting-dimension engine is introduced |
@@ -6545,9 +6877,9 @@ Open decisions before downstream schema freeze are:
 
 ## Company Configuration — reviewed section
 
-Sections 1–13 remain the source of truth. They contain **55 KEEP tables**, **5 REVIEW/conditional tables**, and **1 DEFERRED accounting-classification table**. This includes the three generic Company legal-identifier tables, KEEP `company_location_versions`, `gst_registration_types`, two controlled tax masters, generalized statutory-code tables, eight approved Accounting Setup tables, and shared `stored_files` metadata; Company/GST profile-version concepts remain REVIEW and `account_types` is DEFERRED.
+Sections 1–13 remain the source of truth. They contain **59 KEEP tables**, **4 REVIEW/conditional tables**, and **1 DEFERRED accounting-classification table**. This includes the global Country and Country Subdivision masters, three generic Company legal-identifier tables, KEEP `company_location_versions`, `gst_registration_types`, two controlled tax masters, generalized statutory-code tables, separate Team reporting-bucket and actual-Team identities, eight approved Accounting Setup tables, and shared `stored_files` metadata; Company/GST profile-version concepts remain REVIEW and `account_types` is DEFERRED.
 
-With the **32 downstream ADD** proposals, the conditional physical catalogue would total **87 tables** only if every ADD table is later approved. Renamed/replaced/deferred legacy structures are dispositions, not additional physical tables.
+With the **32 downstream ADD** proposals, the conditional physical catalogue would total **91 tables** only if every ADD table is later approved. Renamed/replaced/deferred legacy structures are dispositions, not additional physical tables.
 
 ## Downstream current review candidates
 
@@ -6566,7 +6898,7 @@ With the **32 downstream ADD** proposals, the conditional physical catalogue wou
 - `sales_order_billing_schedules`
 - `ar_document_dispatch_details`
 
-### DEFER — 10 Company Configuration/downstream/legacy candidates
+### DEFER — 8 Company Configuration/downstream/legacy candidates
 
 - `customer_location_versions`
 - `industries`
@@ -6575,8 +6907,6 @@ With the **32 downstream ADD** proposals, the conditional physical catalogue wou
 - `report_run_exchange_rates`
 - `uom_master`
 - `uom_conversion`
-- `countries`
-- `states`
 - `account_types` — deferred from the current AR CoA foundation to the full Accounting classification design.
 
 ### REMOVE — 1 reviewed standalone candidate
@@ -6589,10 +6919,10 @@ The change log also records **33 legacy table/design entries with MERGE, REMOVE,
 
 | Decision | Count | Included as current physical tables? |
 |---|---:|---|
-| KEEP | 55 | Yes; reviewed Company Configuration and shared metadata, including generic Company identifiers, Location address versions, GST Registration Types, generalized tax/statutory references, eight Accounting Setup tables, and `stored_files` |
+| KEEP | 59 | Yes; reviewed Company Configuration and shared metadata, including Country/Subdivision references, generic Company identifiers, Location address versions, GST Registration Types, separate Cost Center Team and actual Team identities, generalized tax/statutory references, eight Accounting Setup tables, and `stored_files` |
 | ADD | 32 | Proposed downstream candidates; implement only after table-by-table approval |
-| REVIEW | 9 | No automatic implementation: 5 Company Configuration + 4 downstream |
-| DEFER | 10 | No; includes deferred `account_types` plus 9 existing downstream/legacy candidates |
+| REVIEW | 8 | No automatic implementation: 4 Company Configuration + 4 downstream |
+| DEFER | 8 | No; includes deferred `account_types` plus 7 existing downstream/legacy candidates |
 | REMOVE / MERGED / REPLACED | 33 | No; legacy table/design change-log entries, including replaced Company-identifier/tax/accounting structures and the standalone `receivables` removal |
 
-The proposed current physical catalogue is therefore **87 tables only if all 32 downstream ADD candidates are approved**. The 9 REVIEW and 10 DEFER entries are not part of that total, and the 33 removed/merged/replaced legacy change-log entries are never counted as current tables.
+The proposed current physical catalogue is therefore **91 tables only if all 32 downstream ADD candidates are approved**. The 8 REVIEW and 8 DEFER entries are not part of that total, and the 33 removed/merged/replaced legacy change-log entries are never counted as current tables.

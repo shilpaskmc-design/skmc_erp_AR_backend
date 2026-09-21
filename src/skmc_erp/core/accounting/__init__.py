@@ -1,0 +1,1 @@
+"""Core Company accounting identities."""

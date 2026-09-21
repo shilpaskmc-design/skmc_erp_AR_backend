@@ -1,0 +1,1 @@
+"""Company Cost Center configuration."""

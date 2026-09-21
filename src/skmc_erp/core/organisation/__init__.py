@@ -1,0 +1,1 @@
+"""Organisation grouping model."""

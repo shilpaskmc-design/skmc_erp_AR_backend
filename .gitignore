@@ -1,0 +1,23 @@
+# Local virtual environment and configuration
+.venv/
+.env
+
+# Python bytecode and interpreter caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test, coverage, lint, and type-check caches
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+# Python build and package artifacts
+build/
+dist/
+*.egg-info/
+.eggs/

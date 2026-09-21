@@ -1,0 +1,1 @@
+"""Core/Shared domain capabilities."""

@@ -49,7 +49,7 @@ Company Configuration must not be treated as one AR-only settings area. Shared f
 | Financial-document presentation and email delivery | AR-Specific | Controls AR document output and delivery. |
 | AR reminder defaults | AR-Specific | Supplies defaults to the separate Reminder Engine. |
 | Service catalogue platform suggestions vs Company adoption | **Boundary TBD** | Business behaviour is confirmed; exact ownership awaits domain modelling. |
-| Company Bank Accounts | **Boundary TBD** | Accounts may be shared Company masters while invoice selection is AR-specific. |
+| Company Bank Accounts | Core / Shared | Owns reusable Company Bank Account identity; invoice selection remains AR-specific usage. |
 | Tax families, HSN/SAC, rates, treatments and statutory codes | **Confirmed boundary** | Controlled Tax Types identify GST/TDS/TCS/VAT/CESS families; Company HSN/SAC, numeric rates, eligible mappings, Tax Treatments, COMPONENT codes, SECTION codes, and code rates remain distinct. |
 | Company CoA and shared accounting structure | Core / Shared accounting configuration | Owns stable Company GL identities, hierarchy/Group structure, default Receivable GL configuration, direct Bank GL association, and shared accounting/statutory identities. |
 | AR Revenue and Tax GL mapping/resolution | AR accounting configuration | Owns effective Revenue and Tax GL mappings, invoice-context Revenue/Tax resolution, and preservation of resolved GL references in finalized AR transactions. |
@@ -91,7 +91,7 @@ Company administrators can maintain the identity and contact information of the 
 |---|---|---|
 | Legal Company Name | Identifies the legal entity. | MVP |
 | Display / Short Name | Provides a shorter business-facing name. | CONFIGURABLE |
-| Company Code | Optional business-facing identifier; it is not a database primary key. | CONFIGURABLE |
+| Company Code | System-generated global operational reference in `COM000001` form; immutable in normal operation and not the database primary key. | SYSTEM |
 | Entity Type | Selects the Company's primary legal form from jurisdiction-scoped, platform-managed reference data; it is not Company-entered free text. | CONFIGURABLE |
 | Company Legal Identifiers | The system shows jurisdiction- and Entity-Type-applicable identifier inputs such as PAN, CIN, or LLPIN; values are stored as Company identifier records rather than permanent identifier-specific Company columns. | CONDITIONAL |
 | MSME applicability/details | Captured where applicable. | CONDITIONAL |
@@ -99,12 +99,16 @@ Company administrators can maintain the identity and contact information of the 
 | Base Time Zone | Supplies Company-local time for scheduled behaviour. | MVP |
 | Company Email, Phone, Website | Maintains Company contact channels; exact activation requirements remain TBD. | CONFIGURABLE |
 | Company Logo | Reusable Company identity asset. | CONFIGURABLE |
-| Company Status | Supports Active and Inactive lifecycle states. | MVP |
+| Company Status | Supports `DRAFT`, `ACTIVE`, and `INACTIVE`; incomplete setup may persist while Draft. | MVP |
 
 **Requirement — SYSTEM RULE**
 
 - Company is the legal, billing, tax, and accounting entity and retains direct authoritative ownership by exactly one Tenant.
 - Organisation is an optional non-legal grouping layer within that Tenant and provides no current configuration inheritance.
+- Company Code is generated from a global concurrency-safe sequence, is globally unique, and is not entered manually during normal onboarding. Gaps are acceptable and codes are never intentionally reused.
+- A Draft Company requires only Tenant ownership, legal name, generated Company Code, and explicit Draft status at initial persistence. Country, Entity Type, Base Time Zone, Base Currency, and Business Nature may remain incomplete until activation.
+- Country selection uses the global platform-managed Country master and saves its uppercase two-letter code. Reference data is provisioned separately; the existing Company Country FK is not added until catalogue coverage and stored values are audited.
+- Activation business logic, rather than one large table CHECK, must require country, a jurisdiction-compatible Entity Type, a valid IANA time zone, Base Currency, Business Nature, Registered Office, and other applicable configuration.
 - Company saves the selected `entity_type_id` from the controlled options applicable to its country/jurisdiction. Normal Company users cannot create arbitrary Entity Types through typed or search text.
 - Entity Type selection determines which controlled legal Identifier Types are shown and whether each is REQUIRED or OPTIONAL. No rule means the identifier is normally hidden/not applicable for that Entity Type.
 - The system and UI consume the same platform-managed applicability rules. Normal Company users enter identifier values but cannot create Identifier Types or change applicability rules.
@@ -117,8 +121,8 @@ Company administrators can maintain the identity and contact information of the 
 
 - An administrator can capture the applicable identity information and Company-local time zone.
 - Entity Type is selected from canonical jurisdiction-compatible options, and only its stable reference is saved.
-- Company Code may be omitted and is treated only as a business identifier.
-- Company can move through Active/Inactive lifecycle without loss of historical access.
+- Company Code is generated automatically, has the `COM` plus at-least-six-digits format, and remains stable through normal Company operations.
+- Company can persist incomplete configuration while Draft and move through Active/Inactive lifecycle without loss of historical access.
 - Private Company data remains within its Tenant boundary.
 
 Company Identity follows this flow:
@@ -153,12 +157,15 @@ This is one Location with several purposes, not three duplicate Location records
 
 **Requirement — SYSTEM RULE**
 
-- Exactly one active Registered Office exists per Company.
-- The at-least-one Registered Office rule applies when Company setup is completed/usable; an incomplete draft need not be forced into completed-state behavior.
+- At most one active Registered Office exists per Company at all times.
+- Exactly one active Registered Office is required when Company setup is completed/usable; an incomplete draft may temporarily have none.
 - One Company Location may carry more than one applicable fixed purpose.
 - Non-Registered-Office purposes may repeat across different Locations where applicable; they are not implicitly unique per Company.
 - A billing or operational address may differ from the Registered Office.
 - A Company Location may exist without a GST registration.
+- First-level State, Union Territory, Province, Region, or equivalent choices come from the global Country Subdivision master. City remains address text; there is no City, District, postal-code, or generic address-hierarchy master.
+- Every Location references one active Country when it is created. A first-level Country Subdivision is optional; when supplied, it must be active and belong to the selected Country. PostgreSQL protects that compatibility through the approved composite Country/Subdivision relationship.
+- Every saved Location has at least one fixed purpose or a non-blank `other_purpose`.
 - A Location belongs to zero or one GST Registration through its nullable direct association.
 - A GST-linked Location's State/UT jurisdiction must be compatible with the GST Registration, and this rule must be protected beyond frontend filtering.
 - At most one active Location mapped to a GST Registration is marked as that GSTIN's default. Where the product flow requires a default, setup validation ensures one exists. The default is only a preselection aid; transactions may still select another eligible Location explicitly.
@@ -175,6 +182,7 @@ This is one Location with several purposes, not three duplicate Location records
 - More than one Location can carry the same non-Registered-Office purpose where applicable.
 - The system prevents a Company from having zero or more than one active Registered Office once the applicable setup is active.
 - A location can be saved without a GST registration.
+- A location can omit Subdivision where the address does not require one, but any supplied Subdivision must belong to the selected Country.
 - Historically referenced locations cannot be hard-deleted through normal configuration.
 - The system prevents more than one active default Location for the same GST Registration.
 - A mapped Location's state/jurisdiction must be compatible with its GST Registration.
@@ -190,11 +198,14 @@ The Company legal name and GST-registration legal name are distinct current fact
 
 **Requirement — SYSTEM RULE**
 
-- Each GST registration belongs to one state/jurisdiction.
-- GSTIN is stored in trimmed canonical uppercase form, is subject to statutory validation, and is unique across the ERP.
-- Each usable registration retains its controlled GST-specific Registration Type reference and explicit State/UT jurisdiction. GST Registration Type is separate from the generic Tax Type/family master; exact supported Registration Type values, statutory status values, and physical State reference remain open for dedicated review.
+- Each GST registration belongs to one Indian State/UT represented by the shared Country Subdivision master. The selected active Subdivision must belong to `IN`, have a provisioned two-digit GST State code, and match the first two GSTIN digits.
+- GSTIN is stored in trimmed canonical uppercase form, must satisfy the approved 15-character structural format, and is unique across the ERP. Checksum, GST portal verification, and Company-PAN verification are outside the current foundation.
+- GST Registration lifecycle is `DRAFT` → `ACTIVE` → `INACTIVE`; new registrations start as `DRAFT`, and normal hard deletion is not used. Activation transitions and readiness validation remain separate work.
+- GST Registration Type is a controlled GST-specific platform reference separate from the generic Tax Type/family master. It may be omitted while a registration is `DRAFT`; exact supported reference values and provisioning remain open and are not seeded by the schema migration.
+- GST Registration creation is permitted only for a Company whose current `country_code` is `IN`.
 - One GST registration may be associated with multiple Company Locations.
 - A Company Location need not have a GST registration.
+- A mapped Location and GST Registration must belong to the same Company and use the same Country Subdivision jurisdiction.
 - Where applicable, one and only one active mapped Location is the default for that GST Registration.
 - The seller GSTIN used by Billing is selected or derived from the billing workflow, never from the logged-in user's physical location.
 - The MVP does not support multiple active GST registrations for the same Company in the same state. This is an MVP product constraint, not a general legal claim.
@@ -207,6 +218,7 @@ The Company legal name and GST-registration legal name are distinct current fact
 - Multiple Company Locations can be associated with one GST registration.
 - A GST Registration can have one active default mapped Location without requiring a bridge table.
 - The system prevents a second active same-state GST registration for the Company in the MVP.
+- A malformed GSTIN, non-Indian/unprovisioned State/UT, or GSTIN/State-code mismatch is rejected even while the registration is `DRAFT`.
 - Billing can consume seller-GSTIN context without using the user's physical location.
 - A Company legal-name update does not erase earlier Company or GST-registration states and does not rewrite seller identity on finalized invoices.
 
@@ -245,7 +257,9 @@ LUT configuration applies to the current without-payment Export/SEZ routes under
 
 **Requirement — CONFIGURABLE**
 
-A Company defines one normal recurring fiscal-year start pattern using a start day and month. This pattern is separate from the actual dated Financial Year records created for the Company.
+A Company defines one normal recurring fiscal-year pattern using `APR_MAR`, `JAN_DEC`, or `CUSTOM`. `APR_MAR` resolves to 1 April, `JAN_DEC` resolves to 1 January, and `CUSTOM` supplies an explicit recurring start month and day. This pattern is separate from the actual dated Financial Year records created for the Company.
+
+The recurring month/day must exist in every calendar year. February 29 and impossible combinations such as April 31 are rejected when settings are configured; recurring dates are never normalized to another day.
 
 Example: a start of 1 April can derive 1 April 2026 through 31 March 2027, followed by 1 April 2027 through 31 March 2028.
 
@@ -253,6 +267,8 @@ Example: a start of 1 April can derive 1 April 2026 through 31 March 2027, follo
 
 - Actual period dates are authoritative.
 - Each Financial Year has a required human-readable display code such as `2026`, `2026-27`, or `FY 2026-27`; the actual dates remain the source of truth.
+- Normal generated Financial Years start in `DRAFT` and use the lifecycle `DRAFT` → `OPEN` → `CLOSED`. Reopening a closed year is not approved. Lifecycle transition APIs remain separate from initial generation.
+- Past, current, and future are derived from `start_date`, `end_date`, and the applicable date; they are not persisted lifecycle statuses.
 - Short or transition Financial Years are supported explicitly rather than inferred later from the current normal pattern.
 - The system can calculate and propose/create the next expected Financial Year from the recurring pattern, including when a future transaction date lacks an applicable configured FY.
 - Creating the next Financial Year does not close or lock the previous Financial Year, prevent transactions in it, or change accounting-period state.
@@ -261,10 +277,12 @@ Example: a start of 1 April can derive 1 April 2026 through 31 March 2027, follo
 - Financial Years for the same Company must not overlap. Gaps are handled as configuration/workflow issues rather than being unconditionally forbidden in storage.
 - A transaction date must resolve to exactly one configured Financial Year; otherwise the applicable workflow proposes/creates the expected FY or blocks until setup is completed.
 - Financial Year, accounting close, and accounting lock remain separate concepts. Accounting close/lock belongs to future Accounting design.
+- Closing a Financial Year does not imply that its invoices or receivables are settled. Invoice, receivable, Receipt/Knock-off, and Financial Year lifecycles remain independent.
+- Arbitrary reporting date ranges are reporting inputs rather than special Financial Years.
 
 **Acceptance Criteria**
 
-- An administrator can define the fiscal start day and month.
+- An administrator can select `APR_MAR`, `JAN_DEC`, or a valid every-year `CUSTOM` fiscal start day and month.
 - The system can derive consecutive annual periods from the pattern.
 - The normal pattern need not be re-entered every year.
 - An administrator can record an explicit short/transition Financial Year.
@@ -337,7 +355,7 @@ During Company Configuration, the Company identifies what it sells or provides:
 
 Services use the conceptual structure **Service Category → Service Type**. Service Type is the actual billable service.
 
-Possible Service Type information includes Service Name, optional internal code, Service Category, description, optional UOM, Company-configured SAC, current/default selected eligible GST rate, GST/Tax Treatment, optional Business Segment, TCS applicability-check requirement, and Active/Inactive status.
+Possible Service Type information includes Service Name, optional internal code, Service Category, description, optional UOM, Company-configured SAC, current/default selected eligible GST rate, GST/Tax Treatment, TCS applicability-check requirement, and Active/Inactive status.
 
 **Requirement — CONFIGURABLE**
 
@@ -350,8 +368,10 @@ Possible Service Type information includes Service Name, optional internal code,
 - A Tenant or Company's private custom service must not automatically become visible to another Tenant.
 - Historically used Service Types are deactivated rather than treated as if they never existed.
 - Service Type directly references a Company-configured SAC and one current/default selected eligible rate. The selected rate is stored on the Service Type and must be valid through the Company SAC-to-rate relationship; no separate service-tax assignment history is required for MVP.
-- The Service Category, SAC, and optional Business Segment must belong to the same Company as the Service Type. A Service Type has at most one current Business Segment through its nullable direct reference.
+- The Service Category and SAC must belong to the same Company as the Service Type.
 - `tcs_check_required` requires Billing to make/perform the applicable TCS decision; it does not automatically charge TCS.
+- Current catalogue create operations persist complete records as `ACTIVE`; `DRAFT` is not a catalogue lifecycle value. Historically used records are retained through `INACTIVE`.
+- A Service Type may reference zero or one same-Company Business Segment through its nullable direct relationship. Assignment and reassignment API behavior remains outside the current catalogue create API.
 
 The platform may offer canonical/suggested Service Categories and Service Types. Exact ownership between platform definitions, Company adoption, and Company-specific configuration is **Boundary TBD** for domain modelling.
 
@@ -368,7 +388,7 @@ The platform may offer canonical/suggested Service Categories and Service Types.
 
 Goods use the conceptual structure **Product Category → Product → SKU**. SKU is the actual sellable variation.
 
-SKU information may include SKU Code, Product, Company-configured HSN, current/default selected eligible GST rate, GST/Tax Treatment, UOM, description, optional Business Segment, TCS applicability-check requirement, and Active/Inactive status.
+SKU information may include SKU Code, Product, Company-configured HSN, current/default selected eligible GST rate, GST/Tax Treatment, UOM, description, TCS applicability-check requirement, and Active/Inactive status.
 
 **Requirement — CONFIGURABLE**
 
@@ -381,8 +401,10 @@ SKU information may include SKU Code, Product, Company-configured HSN, current/d
 - Customer-specific pricing belongs to Sales Order/commercial setup, not permanent Company Catalogue setup.
 - Historical transactions retain the relevant sold-item information even if catalogue data changes or becomes inactive.
 - SKU directly references a Company-configured HSN and one current/default selected eligible rate. The selected rate is stored on the SKU and must be valid through the Company HSN-to-rate relationship; no separate SKU-tax assignment history is required for MVP.
-- The Product, HSN, and optional Business Segment must belong to the same Company as the SKU. A SKU has at most one current Business Segment through its nullable direct reference.
+- The Product and HSN must belong to the same Company as the SKU.
 - `tcs_check_required` requires Billing to make/perform the applicable TCS decision; it does not automatically levy TCS.
+- Current catalogue create operations persist complete records as `ACTIVE`; `DRAFT` is not a catalogue lifecycle value. Historically used records are retained through `INACTIVE`.
+- An SKU may reference zero or one same-Company Business Segment through its nullable direct relationship. Assignment and reassignment API behavior remains outside the current catalogue create API.
 
 **Acceptance Criteria**
 
@@ -437,7 +459,7 @@ Business Segment, Team, and Location are independent reporting choices. Business
 
 The current Cost Center configuration is dynamic across the supported Business Segment, Team and Location bases. It is not a generic user-defined accounting-dimension engine.
 
-The bases remain separate business entities because their behavior differs: Business Segments relate directly to Service Types and SKUs, Teams have effective-dated user membership history, and Location Cost Centers group physical Company Locations. No generic `cost_centers`, `cost_center_types`, polymorphic mapping, arbitrary dimension-value, or JSON-driven dimension model is introduced.
+The bases remain separate business entities because their behavior differs: Business Segments relate directly to Service Types and SKUs, Cost Center Team reporting buckets group actual Company Teams, actual Teams have effective-dated user membership history, and Location Cost Centers group physical Company Locations. No generic `cost_centers`, `cost_center_types`, polymorphic mapping, arbitrary dimension-value, or JSON-driven dimension model is introduced.
 
 ### 15.1 Business Segment
 
@@ -460,19 +482,33 @@ Business Segment is a management-reporting bucket and is not the same as Service
 
 **Requirement — CONFIGURABLE**
 
-If Team reporting is enabled, Team itself acts as the reporting dimension; no duplicate cost-centre identity is created merely to repeat the Team.
+If Team reporting is enabled, a Cost Center Team is the reporting bucket. It is not the actual operational Company Team master. One Cost Center Team may group multiple actual Company Teams for reporting.
 
 **Requirement — SYSTEM RULE**
 
-- A Team may contain multiple users.
-- A user may belong to multiple Companies, but within the applicable Company scope the design intends one active Team membership.
-- A Team may span multiple physical Company Locations.
-- Team is currently a billing/header-level reporting dimension, not an invoice-line-level dimension.
+- A Company may have multiple Cost Center Team reporting buckets and multiple actual Teams.
+- One Cost Center Team may group multiple actual Teams.
+- One actual Team may belong to zero or one Cost Center Team through a nullable direct relationship; it cannot belong to multiple Cost Center Team buckets in the current scope.
+- A Cost Center Team and every actual Team assigned to it must belong to the same Company.
+- An actual Team may contain multiple users and may span multiple physical Company Locations.
+- A user may belong to multiple Companies, but within the applicable Company scope the design intends one active actual-Team membership.
+- Team-based reporting is currently a billing/header-level dimension, not an invoice-line-level catalogue dimension.
 - Authentication identities may come from an external IAM system such as Keycloak; ERP references business identity/team membership without owning passwords.
-- Team is a Company business identity, not an IAM group. A Team may continue while its membership changes.
-- Team changes preserve history by closing the prior effective-dated membership and creating a new membership row; historical membership is not overwritten.
+- An actual Team is a Company business identity, not an IAM group. It may continue while its membership changes.
+- Team membership attaches users/IAM subjects to actual Teams, not directly to Cost Center Team reporting buckets.
+- Membership changes preserve history by closing the prior effective-dated membership and creating a new membership row; historical membership is not overwritten.
 - The physical user/IAM reference and exact database enforcement of the one-active-membership rule remain OPEN until the repository's Company/user membership identity and scope are frozen.
-- Historically used Teams are inactivated rather than deleted.
+- Historically used Cost Center Team buckets and actual Teams are inactivated rather than deleted.
+- An actual Team may remain unassigned to a Cost Center Team. Mandatory complete Team-bucket coverage is not a current requirement; whether a future activation/readiness rule requires it remains OPEN.
+
+**Team-basis setup flow**
+
+1. Create Cost Center Team reporting buckets.
+2. Create or select actual Company Teams.
+3. Assign zero or one Cost Center Team to each actual Team; one reporting bucket may receive many Teams.
+4. Manage users through effective-dated memberships on the actual Teams.
+
+For example, the `Regulatory Operations` Cost Center Team may group the actual `BIS Team`, `AEO Team`, and `FEMA Team`; users belong to those actual Teams rather than directly to `Regulatory Operations`.
 
 ### 15.3 Location Cost Center
 
@@ -664,7 +700,7 @@ For AR use, the ERP may preselect one configured default Bank Account for the ap
 - A Bank Account may directly reference a same-Company GL Account. That reference may remain incomplete during setup, but an Accounting-integrated operation requiring a Bank GL must block until an active/applicable same-Company GL is assigned.
 - Historical approved documents preserve the bank details actually presented.
 
-Whether Bank Accounts are wholly Core/Shared masters or share a core identity with AR-specific usage is **Boundary TBD**.
+Company Bank Accounts are Core/Shared Company-owned masters. AR owns invoice-selection behavior that consumes those shared identities; Core does not depend on Billing behavior.
 
 **Acceptance Criteria**
 
@@ -728,6 +764,64 @@ Company Configuration
 
 No `parent_group_id` is stored permanently on the Group.
 
+For the current MVP, Account Hierarchy and Account Group persistence follows these
+approved rules:
+
+- `ACCOUNTING` is the only allowed hierarchy purpose. `MANAGEMENT` remains future
+  scope and is not an allowed persisted value yet.
+- Hierarchy and Group status is exactly `ACTIVE` or `INACTIVE`, with no status
+  default.
+- A Company may have at most one hierarchy that is simultaneously `ACCOUNTING`,
+  `ACTIVE`, and primary. An inactive historical primary does not block a replacement
+  and its `is_primary` value is not rewritten merely because it becomes inactive.
+- Hierarchy names are non-blank and case-sensitively unique within Company and
+  purpose.
+- Group names are non-blank and case-sensitively unique within their hierarchy.
+  Optional Group codes are non-blank when supplied and case-sensitively unique
+  within their hierarchy; multiple null codes are allowed.
+- A Group and its hierarchy must belong to the same Company, enforced by the
+  database rather than only by application validation.
+- Hierarchies and Groups preserve historical references through inactivation and
+  restrictive deletion. Neither table stores effective placement dates; those
+  remain owned by the later relationship tables.
+
+#### Effective Account Group relationship behavior
+
+The following business contract is approved for the `ACCOUNTING` hierarchy. Its
+physical relationship-table contract and cycle-enforcement mechanism are not yet
+frozen.
+
+- An Account Group has zero or one effective parent on a date. Multiple effective
+  parents are not allowed.
+- A root Group is represented by the absence of an effective parent relationship
+  row. The design must not create an artificial child-to-null relationship row.
+- Absence of a parent row can also represent temporarily incomplete/draft setup;
+  later validation must distinguish intentional roots from incomplete structure.
+- Parent and child Groups must belong to the same Company and hierarchy. A Group
+  cannot parent itself, and effective parent relationships cannot form a cycle.
+- Parentage is effective-dated and retained as history. Reparenting closes the old
+  relationship and creates a new one; it does not overwrite the historical row.
+- A normal move must not accidentally leave a business-date gap between the old
+  and new parentage. Moving a Group to root is a separate explicit action. Exact
+  interval-bound representation and the UI interaction remain for later design.
+- Siblings are displayed alphabetically by Group name in MVP. Account Groups do
+  not gain sort, display-order, or sequence columns. Custom sibling ordering is
+  deferred.
+- The hierarchy has arbitrary conceptual depth; no business maximum depth is
+  approved.
+- When discontinuing a Group that has children, the children may be moved,
+  effective-dated, to the discontinued Group's current parent, another existing
+  Group, a newly created Group, or root. No option silently rewrites history; the
+  detailed restructuring UI remains for later design.
+- A Group must not be changed to `INACTIVE` while it has a current-effective or
+  future-effective GL Account placement, or while it is the parent in a
+  current-effective or future-effective child-Group relationship. The user must
+  first explicitly relocate or date-end those placements/relationships.
+- Historical placement/relationship rows ending before the applicable
+  inactivation point remain stored and do not block inactivation. Inactivation
+  never moves GL Accounts or child Groups, closes periods, changes parents,
+  creates replacement Groups/root placements, or rewrites history automatically.
+
 ### B. Stable GL Accounts
 
 GL Account form:
@@ -739,9 +833,39 @@ GL Account form:
 
 The GL Account does not store Account Type, parent, Group, `is_group`, or calculated balance in the current AR foundation. Rename/code changes preserve its stable ID. Used Accounts are never hard-deleted or converted into Groups.
 
+Account Group and GL Account identities remain distinct throughout their
+lifecycle. If an existing posting GL `C` later needs child-level detail, the
+Company creates a new structural Group and the required new GL Accounts while
+retaining `C` as the posting identity referenced by prior transactions. The
+system never converts `C` into a Group merely to obtain a tree shape.
+
 ### C. Effective GL Placement
 
-The Company places a GL Account into a Group for an effective period. One GL has at most one Group within one hierarchy on a date, but may have a different placement in another hierarchy.
+The Company places a GL Account within a hierarchy through a separate
+effective-dated relationship. Within the current `ACCOUNTING` hierarchy, one GL
+has at most one effective placement on a date. That placement may be inside an
+Account Group or intentionally at the hierarchy root. The GL Account must not
+permanently embed a `group_id`, parent, or equivalent convenience link.
+
+The three placement states are distinct:
+
+- **Unplaced:** no effective `gl_account_group_mappings` row exists. This is
+  allowed during draft/incomplete configuration and restructuring. A later
+  readiness contract may require placement where applicable, but no
+  publish/activation workflow is introduced here.
+- **Placed inside an Account Group:** an effective row exists with
+  `account_group_id` set to that Group's UUID.
+- **Intentionally placed at hierarchy root:** an effective row exists with
+  `account_group_id = NULL`. Row presence distinguishes this state from an
+  unplaced GL; no `is_root`, `is_unplaced`, or `placement_type` field is used.
+
+Group and root placements participate in the same effective-dated history and
+cannot overlap for the same GL and hierarchy. Placement changes end the old
+effective row and create the future row; they never overwrite earlier placement,
+alter GL identity, or rewrite posting history. A placed GL may become unplaced by
+ending its current row without creating a replacement row. Group-to-Group,
+Group-to-root, root-to-Group, and unplaced-to-Group/root transitions remain
+explicit user actions rather than automatic restructuring.
 
 Example:
 
@@ -757,6 +881,11 @@ Sales Export → International Business
 ```
 
 The stable `Sales Export` GL Account remains unchanged.
+
+This placement relationship only determines where a GL appears in the hierarchy.
+SKU, Service Type, HSN/SAC, Supply Type, Location, and other approved transaction
+criteria selecting a GL belong to the separate future Account Determination
+contract.
 
 ### D. Revenue GL Mapping
 
@@ -792,13 +921,54 @@ CGST/SGST/IGST are components, not statutory sections. Ordinary GST item rates s
 - Current scope does not add receivable-routing or bank-mapping tables.
 - Domestic/Export/customer-category Receivable routing is DEFERRED.
 
+### G. Future Account Determination Direction
+
+**Approved business direction - FUTURE implementation**
+
+A future effective-dated Account Determination capability may select a Company
+GL Account from controlled criteria. This direction is not a persistence or
+runtime resolver approval, and it does not replace or change the current Revenue
+GL, Tax/Statutory GL, default Receivable GL, or Bank Account contracts above.
+Promotion or integration with those mappings requires a separate approved
+contract.
+
+The currently approved criterion vocabulary is:
+
+- Goods: Product Category, SKU, and optional HSN.
+- Services: Service Category, Service Type, and optional SAC.
+- Transaction context: Supply Type, Company Location, and GST/GST-location
+  context.
+- Fallback: an applicable Company Default GL.
+
+A rule may use one or multiple applicable criteria. More-specific matching wins;
+where equally specific rules are otherwise eligible, explicit priority is the
+next discriminator. A remaining ambiguity blocks resolution instead of choosing
+silently. The physical representation of specificity and priority, exact
+conflict constraints, account-purpose eligibility, and the meaning and scope of
+each Company-default fallback are not yet frozen.
+
+Account Determination is effective-dated: a later rule change preserves the
+earlier rule period for historical interpretation rather than overwriting it.
+
+Cost Centre is deliberately excluded from Account Determination. The design must
+not become an uncontrolled `dimension_name` / `dimension_value` rule bag. New
+criteria require deliberate product approval; Industry, Channel, Salesperson,
+Project, and Cost Centre are not approved criteria. SKU and service masters do
+not gain a permanent `gl_account_id` merely for this future resolver.
+
+Any future transaction-level account override is a separate AR transaction
+design. If approved later, it would require Finance authorization, reason and
+audit evidence, and must not modify Company master configuration. Whether and how
+an override is allowed remains OPEN and is not part of this Company Configuration
+persistence slice.
+
 ### Complete business flow
 
 ```text
 COMPANY CONFIGURATION
 → Create ACCOUNTING hierarchy and Groups
 → Create stable GL Accounts
-→ Place GL Accounts in Groups for effective periods
+→ Place GL Accounts in Groups or intentionally at hierarchy root for effective periods
 → Configure effective Revenue and Tax/Statutory GL mappings
 → Select default Receivable GL and associate Bank Accounts with GLs
 → INVOICE / RECEIPT
@@ -814,9 +984,30 @@ Examples such as `Sales Domestic`, `Output CGST`, `Trade Receivables`, or `HDFC 
 - **Merge:** Keep `Consulting Revenue` and `Advisory Revenue` historically referenceable; create/use `Professional Services Revenue` for future mappings; optionally inactivate the old GLs.
 - Historical accounting amounts and resolved account IDs never change because hierarchy or mapping configuration changes.
 
+### Posting history and reporting-structure history
+
+Source posting history and reporting-structure history are distinct. Finalized
+transactions preserve the GL Account identity selected at posting time. Moving a
+GL between Groups, moving a Group within the hierarchy, or changing an Account
+Determination rule never rewrites that source posting identity.
+
+For an already-open current financial year, two possible future mechanisms are
+kept separate:
+
+- a prospective mapping or placement change for transactions from an approved
+  future date, with prior postings unchanged; and
+- a future reporting restatement or an explicit future accounting
+  reclassification when authorized users need a different historical view or
+  accounting outcome.
+
+Reporting restatement and accounting reclassification are not interchangeable.
+Their permissions, audit evidence, journal behavior, periods, and UI remain
+OPEN/DEFERRED to the full Accounting design. Neither mechanism may silently
+rewrite a finalized transaction.
+
 **Requirement — FUTURE-FRIENDLY**
 
-Future Company self-service import/export should support Account Groups, GL Accounts, Group relationships, and GL-to-Group placements. UUIDs remain internal; external files may use Account Code plus Company/template context after file, conflict, and idempotency rules are approved. Manual SQL/VPS maintenance is not the intended product flow. Import/export and starter-template implementation are DEFERRED.
+Future Company self-service import/export should support Account Groups, GL Accounts, Group relationships, and GL hierarchy placements. UUIDs remain internal; external files may use Account Code plus Company/template context after file, conflict, and idempotency rules are approved. Manual SQL/VPS maintenance is not the intended product flow. Import/export and starter-template implementation are DEFERRED.
 
 **Open Accounting Design**
 
@@ -1011,7 +1202,7 @@ Audit storage design is outside this document.
 | MVP | Company/legal setup, locations, GST, LUT, fiscal setup, and lifecycle | Provide reusable Company setup with conditional statutory configuration. |
 | MVP | PI/TI/DN/CN numbering | Support configurable, non-reusable final numbers and fiscal rollover. |
 | MVP | Service and Product/SKU catalogues | Support Company adoption/configuration according to business nature. |
-| MVP | Business Segment, Team, and Location Cost Center | Let each Company enable any supported combination through authoritative settings while retaining the bases as separate domain identities. |
+| MVP | Business Segment, Team, and Location Cost Center | Let each Company enable any supported combination through authoritative settings while retaining Business Segment and Location identities plus separate Cost Center Team reporting buckets, actual Teams, and Team memberships. |
 | MVP | Currency, FX, Bank Accounts, tax inputs, presentation, email, and reminder defaults | Supply reusable Company/AR configuration within the stated boundaries. |
 | MVP | Company-created Accounting hierarchy/Groups, stable GL Accounts, effective Revenue/Tax mappings, one default Receivable GL, and direct Bank-to-GL association | Resolve Company-defined accounts automatically while keeping hierarchy separate and preserving final references. |
 | DEFERRED | Organisation-level configuration inheritance | Not part of the current MVP. |
@@ -1026,11 +1217,10 @@ Audit storage design is outside this document.
 Only the following unresolved decisions materially influence Company Configuration or its domain model:
 
 1. What is the exact ownership boundary among platform Service Catalogue suggestions, Company adoption, and Company-specific service configuration?
-2. Are Company Bank Accounts entirely Core/Shared masters, or is part of their definition AR-specific beyond AR selection behaviour?
-3. Are Team and other management-reporting references shared across modules, or owned by AR configuration in the MVP?
-4. What exact minimum identity, catalogue, numbering, currency, Bank Account, and tax setup blocks Company activation?
-5. What Company-level Receipt FX configuration is required, and how does its purpose differ from Billing and Reporting FX?
-6. What first-release applicability dimensions define numbering-series eligibility, and what combination defines a separately configured scope?
+2. Are Team and other management-reporting references shared across modules, or owned by AR configuration in the MVP?
+3. What exact minimum identity, catalogue, numbering, currency, Bank Account, and tax setup blocks Company activation?
+4. What Company-level Receipt FX configuration is required, and how does its purpose differ from Billing and Reporting FX?
+5. What first-release applicability dimensions define numbering-series eligibility, and what combination defines a separately configured scope?
 
 These remain **TBD**; this document does not resolve them by assumption.
 
@@ -1045,7 +1235,7 @@ These remain **TBD**; this document does not resolve them by assumption.
 | Fiscal periods | Annual periods derive from a pattern, future changes are controlled, and history is preserved. |
 | Numbering | PI/TI/DN/CN support configurable series; final numbers are assigned after approval and never reused. |
 | Catalogues | Business nature drives applicable setup; platform suggestions and Tenant-private configuration can coexist. |
-| Management reporting | Company settings drive the enabled Business Segment, Team, and Location bases; no generic user-defined dimension engine is implied. |
+| Management reporting | Company settings drive the enabled Business Segment, Team, and Location bases; Team reporting uses Cost Center Team buckets over separate actual Teams and no generic user-defined dimension engine is implied. |
 | Currency and FX | Currency purpose is explicit; Billing and Reporting FX may differ; approved values are retained. |
 | Bank and tax setup | Reusable inputs support Billing without forcing GSTIN routing or conflating classification with tax rules. |
 | Accounting setup | Company-defined stable GL Accounts and effective mappings resolve Receivable, Revenue, and CGST/SGST/IGST accounts without hardcoded account names. |
@@ -1069,7 +1259,7 @@ The next documentation layer must use the following business concepts and constr
 | Catalogue structures | Service Category → Service Type and Product Category → Product → SKU; platform suggestions, Company adoption/configuration, and Tenant-private extensions. |
 | Classification and tax | Controlled Tax Types; Company-configured HSN/SAC; controlled numeric rates; effective eligible-rate mappings; controlled GST/Tax Treatment (`TAXABLE`, `NIL_RATED`, `EXEMPT`, `NON_GST`); separate Tax Statutory COMPONENT/SECTION codes and Code Rates; actual approved line tax facts retained. |
 | Accounting setup | Company-created Hierarchies and Groups; stable GL Accounts; effective Group and GL placements; one-table Supply-Type/optional-HSN-SAC Revenue GL Mapping; statutory-code Tax GL Mapping; one default Receivable GL; direct Bank GL FK; finalized resolved account references. |
-| Reporting dimensions | Independent Business Segment, Team, and Location bases with their approved cardinality/history rules; broader custom/arbitrary dimensions remain DEFERRED. |
+| Reporting dimensions | Independent Business Segment, Team, and Location bases; Team reporting separates Cost Center Team buckets from actual Teams and effective-dated user memberships; broader custom/arbitrary dimensions remain DEFERRED. |
 | Currency and FX | Currency purpose, relevant pairs, rate type/purpose/effective context, authorization, and historical rate retention. |
 | Bank, presentation, and delivery | Multiple Company accounts, AR selection behaviour, reusable assets/settings, document-level email behaviour, and historical reproducibility. |
 | Reminder and recurrence boundaries | Company → Client → Invoice reminder precedence; Sales Order/contract ownership of recurrence. |

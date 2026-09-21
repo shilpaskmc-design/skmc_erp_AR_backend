@@ -71,7 +71,7 @@ Development follows strong feature/module boundaries. The current AR service may
 - A Company may enable Business Segment, Team, Location, any combination of those three current reporting bases, or disable Cost Center reporting completely. Company Cost Center settings are authoritative for enablement.
 - Business Segments are tied to billable Service Types/SKUs; the same Service Type or SKU does not belong to multiple Business Segments in the current direction.
 - Service Types and SKUs use direct optional Business Segment references under the current direction.
-- A Team may itself act as a reporting cost centre. A user may belong to multiple Companies, while the current business rule intends one active Team membership within the applicable Company scope; exact physical identity and overlap enforcement remain open.
+- A Cost Center Team is a Company-owned reporting bucket that may group multiple actual Company Teams. An actual Team may belong to zero or one Cost Center Team, and users belong to actual Teams through effective-dated memberships rather than directly to reporting buckets. A user may belong to multiple Companies, while the current business rule intends one active actual-Team membership within the applicable Company scope; exact IAM identity and overlap enforcement remain open.
 - A Location Cost Center may group Company Locations; a Company Location cannot belong to multiple active Location Cost Centers. GSTIN is only a helper for preselecting linked locations.
 - One GST Registration may have several Company Locations. Where a default is applicable, exactly one active mapped Location is the default for that GSTIN; the default is a preselection and does not replace explicit transaction context.
 
@@ -225,7 +225,8 @@ Recurring billing originates from Sales Order or contract configuration: **Sales
 | Product | Company-defined goods definition containing sellable variations. |
 | SKU | Company-defined sellable variation associated with its applicable HSN. |
 | Business Segment | Reporting dimension tied to billable Service Types/SKUs. |
-| Team | User grouping that may also act as a reporting cost centre. |
+| Cost Center Team | Company-owned Team-based reporting bucket that may group multiple actual Teams. |
+| Team | Company-owned operational user grouping that may belong to zero or one Cost Center Team and owns effective-dated user memberships. |
 | Location Cost Center | Reporting grouping of one or more Company Locations. |
 | Sales Order | Commercial setup that can drive billing and recurring schedules/terms. |
 | PI | Proforma Invoice. |

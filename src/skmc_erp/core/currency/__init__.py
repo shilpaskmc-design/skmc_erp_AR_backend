@@ -1,0 +1,1 @@
+"""Currency shared-reference model."""
