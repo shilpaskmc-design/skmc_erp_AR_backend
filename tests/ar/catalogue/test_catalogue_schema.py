@@ -24,7 +24,7 @@ def test_create_schemas_trim_values_and_apply_safe_defaults() -> None:
         name="  GST Advisory  ",
         company_hsn_sac_code_id=uuid4(),
         selected_tax_rate_id=uuid4(),
-        tax_treatment_id=uuid4(),
+        base_tax_treatment_id=uuid4(),
     )
 
     assert category.name == "Advisory"
@@ -47,7 +47,7 @@ def test_create_schemas_trim_values_and_apply_safe_defaults() -> None:
                 "uom": "   ",
                 "company_hsn_sac_code_id": str(uuid4()),
                 "selected_tax_rate_id": str(uuid4()),
-                "tax_treatment_id": str(uuid4()),
+                "base_tax_treatment_id": str(uuid4()),
             },
         ),
     ],
@@ -98,7 +98,7 @@ def test_update_schemas_accept_only_approved_mutable_values() -> None:
         uom="  HOUR  ",
         company_hsn_sac_code_id=classification_id,
         selected_tax_rate_id=tax_rate_id,
-        tax_treatment_id=treatment_id,
+        base_tax_treatment_id=treatment_id,
         tcs_check_required=True,
     )
     product = ProductUpdate(name="  Updated Product  ", description=None)
@@ -108,7 +108,7 @@ def test_update_schemas_accept_only_approved_mutable_values() -> None:
         uom="  EA  ",
         company_hsn_sac_code_id=classification_id,
         selected_tax_rate_id=tax_rate_id,
-        tax_treatment_id=treatment_id,
+        base_tax_treatment_id=treatment_id,
         tcs_check_required=True,
     )
 
@@ -117,6 +117,16 @@ def test_update_schemas_accept_only_approved_mutable_values() -> None:
     assert product.name == "Updated Product"
     assert sku.name == "Updated SKU"
     assert sku.uom == "EA"
+
+
+@pytest.mark.parametrize("schema", [ServiceTypeUpdate, SkuUpdate])
+def test_leaf_update_schema_allows_explicitly_clearing_selected_rate(
+    schema: type,
+) -> None:
+    update = schema.model_validate({"selected_tax_rate_id": None})
+
+    assert "selected_tax_rate_id" in update.model_fields_set
+    assert update.selected_tax_rate_id is None
 
 
 @pytest.mark.parametrize(
@@ -153,16 +163,14 @@ def test_update_schemas_reject_unapproved_fields(
         (ServiceCategoryUpdate, "name"),
         (ServiceTypeUpdate, "name"),
         (ServiceTypeUpdate, "company_hsn_sac_code_id"),
-        (ServiceTypeUpdate, "selected_tax_rate_id"),
-        (ServiceTypeUpdate, "tax_treatment_id"),
+        (ServiceTypeUpdate, "base_tax_treatment_id"),
         (ServiceTypeUpdate, "tcs_check_required"),
         (ProductCategoryUpdate, "name"),
         (ProductUpdate, "name"),
         (SkuUpdate, "name"),
         (SkuUpdate, "uom"),
         (SkuUpdate, "company_hsn_sac_code_id"),
-        (SkuUpdate, "selected_tax_rate_id"),
-        (SkuUpdate, "tax_treatment_id"),
+        (SkuUpdate, "base_tax_treatment_id"),
         (SkuUpdate, "tcs_check_required"),
     ],
 )

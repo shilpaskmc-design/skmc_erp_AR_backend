@@ -49,6 +49,11 @@ from skmc_erp.core.tenant.model import Tenant
 from skmc_erp.core.uom.service import UomInputError, validate_uom_code
 
 
+_CATALOGUE_BASE_GST_NATURE_CODES = frozenset(
+    {"TAXABLE", "NIL_RATED", "EXEMPT", "NON_GST"}
+)
+
+
 class CatalogueNotFoundError(Exception):
     """The Company is not visible within the resolved Tenant."""
 
@@ -114,8 +119,8 @@ async def _validate_tax_configuration(
     company: Company,
     hsn_sac_code_id: UUID,
     expected_classification: HsnSacClassificationType,
-    tax_rate_id: UUID,
-    tax_treatment_id: UUID,
+    base_tax_treatment_id: UUID,
+    tax_rate_id: UUID | None,
 ) -> None:
     classification = await session.get(CompanyHsnSacCode, hsn_sac_code_id)
     if classification is None or classification.company_id != company.id:
@@ -127,6 +132,44 @@ async def _validate_tax_configuration(
     if classification.classification_type is not expected_classification:
         raise CatalogueInputError(
             f"{expected_classification.value} classification is required"
+        )
+
+    treatment_row = (
+        await session.execute(
+            select(TaxTreatment, TaxType)
+            .join(TaxType, TaxType.id == TaxTreatment.tax_type_id)
+            .where(TaxTreatment.id == base_tax_treatment_id)
+        )
+    ).one_or_none()
+    if treatment_row is None:
+        raise CatalogueInputError("Base GST Nature does not exist")
+    treatment, treatment_tax_type = treatment_row
+    if (
+        treatment.status is not TaxReferenceStatus.ACTIVE
+        or treatment_tax_type.status is not TaxReferenceStatus.ACTIVE
+    ):
+        raise CatalogueStateConflictError("Base GST Nature is not active")
+    if treatment_tax_type.code != "GST":
+        raise CatalogueInputError("Base GST Nature must belong to GST")
+    if treatment_tax_type.country_code != treatment.country_code:
+        raise CatalogueInputError(
+            "Base GST Nature does not match its GST jurisdiction"
+        )
+    if treatment.code not in _CATALOGUE_BASE_GST_NATURE_CODES:
+        raise CatalogueInputError(
+            "Base GST Nature must be TAXABLE, NIL_RATED, EXEMPT, or NON_GST"
+        )
+
+    if treatment.code in {"EXEMPT", "NON_GST"}:
+        if tax_rate_id is not None:
+            raise CatalogueInputError(
+                f"Selected Tax Rate must be null for {treatment.code} Base GST Nature"
+            )
+        return
+
+    if tax_rate_id is None:
+        raise CatalogueInputError(
+            f"Selected Tax Rate is required for {treatment.code} Base GST Nature"
         )
 
     tax_rate_row = (
@@ -148,34 +191,17 @@ async def _validate_tax_configuration(
         raise CatalogueInputError("Tax Rate must belong to GST")
     if rate_tax_type.country_code != tax_rate.country_code:
         raise CatalogueInputError("Tax Rate does not match its GST jurisdiction")
-
-    treatment_row = (
-        await session.execute(
-            select(TaxTreatment, TaxType)
-            .join(TaxType, TaxType.id == TaxTreatment.tax_type_id)
-            .where(TaxTreatment.id == tax_treatment_id)
-        )
-    ).one_or_none()
-    if treatment_row is None:
-        raise CatalogueInputError("Tax Treatment does not exist")
-    treatment, treatment_tax_type = treatment_row
-    if (
-        treatment.status is not TaxReferenceStatus.ACTIVE
-        or treatment_tax_type.status is not TaxReferenceStatus.ACTIVE
-    ):
-        raise CatalogueStateConflictError("Tax Treatment is not active")
-    if treatment_tax_type.code != "GST":
-        raise CatalogueInputError("Tax Treatment must belong to GST")
-    if treatment_tax_type.country_code != treatment.country_code:
-        raise CatalogueInputError(
-            "Tax Treatment does not match its GST jurisdiction"
-        )
     if (
         treatment.tax_type_id != tax_rate.tax_type_id
         or treatment.country_code != tax_rate.country_code
     ):
         raise CatalogueInputError(
-            "Tax Rate and Tax Treatment must belong to the same GST jurisdiction"
+            "Tax Rate and Base GST Nature must belong to the same GST jurisdiction"
+        )
+
+    if treatment.code == "NIL_RATED" and tax_rate.rate_percent != 0:
+        raise CatalogueInputError(
+            "NIL_RATED Base GST Nature requires a 0% selected GST rate"
         )
 
     eligible_mapping = await session.scalar(
@@ -246,8 +272,8 @@ async def create_service_type(
         company=company,
         hsn_sac_code_id=service_data.company_hsn_sac_code_id,
         expected_classification=HsnSacClassificationType.SAC,
+        base_tax_treatment_id=service_data.base_tax_treatment_id,
         tax_rate_id=service_data.selected_tax_rate_id,
-        tax_treatment_id=service_data.tax_treatment_id,
     )
     if service_data.uom:
         try:
@@ -264,8 +290,8 @@ async def create_service_type(
         description=service_data.description,
         uom=norm_uom,
         company_hsn_sac_code_id=service_data.company_hsn_sac_code_id,
+        base_tax_treatment_id=service_data.base_tax_treatment_id,
         selected_tax_rate_id=service_data.selected_tax_rate_id,
-        tax_treatment_id=service_data.tax_treatment_id,
         tcs_check_required=service_data.tcs_check_required,
         status=CatalogueStatus.ACTIVE,
     )
@@ -351,8 +377,8 @@ async def create_sku(
         company=company,
         hsn_sac_code_id=sku_data.company_hsn_sac_code_id,
         expected_classification=HsnSacClassificationType.HSN,
+        base_tax_treatment_id=sku_data.base_tax_treatment_id,
         tax_rate_id=sku_data.selected_tax_rate_id,
-        tax_treatment_id=sku_data.tax_treatment_id,
     )
     if not sku_data.uom or not sku_data.uom.strip():
         raise CatalogueInputError("UOM is required for SKU")
@@ -370,8 +396,8 @@ async def create_sku(
         description=sku_data.description,
         uom=norm_uom,
         company_hsn_sac_code_id=sku_data.company_hsn_sac_code_id,
+        base_tax_treatment_id=sku_data.base_tax_treatment_id,
         selected_tax_rate_id=sku_data.selected_tax_rate_id,
-        tax_treatment_id=sku_data.tax_treatment_id,
         tcs_check_required=sku_data.tcs_check_required,
         status=CatalogueStatus.ACTIVE,
     )
@@ -554,8 +580,8 @@ async def update_service_type(
     changes = service_data.model_dump(exclude_unset=True)
     tax_fields = {
         "company_hsn_sac_code_id",
+        "base_tax_treatment_id",
         "selected_tax_rate_id",
-        "tax_treatment_id",
     }
     if tax_fields.intersection(changes):
         await _validate_tax_configuration(
@@ -566,13 +592,13 @@ async def update_service_type(
                 service_type.company_hsn_sac_code_id,
             ),
             expected_classification=HsnSacClassificationType.SAC,
+            base_tax_treatment_id=changes.get(
+                "base_tax_treatment_id",
+                service_type.base_tax_treatment_id,
+            ),
             tax_rate_id=changes.get(
                 "selected_tax_rate_id",
                 service_type.selected_tax_rate_id,
-            ),
-            tax_treatment_id=changes.get(
-                "tax_treatment_id",
-                service_type.tax_treatment_id,
             ),
         )
     if "uom" in changes:
@@ -925,8 +951,8 @@ async def update_sku(
     changes = sku_data.model_dump(exclude_unset=True)
     tax_fields = {
         "company_hsn_sac_code_id",
+        "base_tax_treatment_id",
         "selected_tax_rate_id",
-        "tax_treatment_id",
     }
     if tax_fields.intersection(changes):
         await _validate_tax_configuration(
@@ -937,13 +963,13 @@ async def update_sku(
                 sku.company_hsn_sac_code_id,
             ),
             expected_classification=HsnSacClassificationType.HSN,
+            base_tax_treatment_id=changes.get(
+                "base_tax_treatment_id",
+                sku.base_tax_treatment_id,
+            ),
             tax_rate_id=changes.get(
                 "selected_tax_rate_id",
                 sku.selected_tax_rate_id,
-            ),
-            tax_treatment_id=changes.get(
-                "tax_treatment_id",
-                sku.tax_treatment_id,
             ),
         )
     if "uom" in changes:

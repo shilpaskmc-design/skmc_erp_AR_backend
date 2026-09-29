@@ -67,8 +67,8 @@ class ServiceTypeCreate(BaseModel):
     description: OptionalDescription | None = None
     uom: Uom | None = None
     company_hsn_sac_code_id: UUID
-    selected_tax_rate_id: UUID
-    tax_treatment_id: UUID
+    base_tax_treatment_id: UUID
+    selected_tax_rate_id: UUID | None = None
     tcs_check_required: bool = False
 
 
@@ -84,8 +84,8 @@ class ServiceTypeResponse(BaseModel):
     description: str | None
     uom: str | None
     company_hsn_sac_code_id: UUID
-    selected_tax_rate_id: UUID
-    tax_treatment_id: UUID
+    base_tax_treatment_id: UUID
+    selected_tax_rate_id: UUID | None
     tcs_check_required: bool
     status: CatalogueStatus
     created_at: datetime
@@ -99,8 +99,8 @@ class ServiceTypeUpdate(BaseModel):
     description: OptionalDescription | None = None
     uom: Uom | None = None
     company_hsn_sac_code_id: UUID | None = None
+    base_tax_treatment_id: UUID | None = None
     selected_tax_rate_id: UUID | None = None
-    tax_treatment_id: UUID | None = None
     tcs_check_required: bool | None = None
 
     @model_validator(mode="after")
@@ -108,8 +108,7 @@ class ServiceTypeUpdate(BaseModel):
         for field_name in (
             "name",
             "company_hsn_sac_code_id",
-            "selected_tax_rate_id",
-            "tax_treatment_id",
+            "base_tax_treatment_id",
             "tcs_check_required",
         ):
             if (
@@ -202,8 +201,8 @@ class SkuCreate(BaseModel):
     description: OptionalDescription | None = None
     uom: Uom
     company_hsn_sac_code_id: UUID
-    selected_tax_rate_id: UUID
-    tax_treatment_id: UUID
+    base_tax_treatment_id: UUID
+    selected_tax_rate_id: UUID | None = None
     tcs_check_required: bool = False
 
 
@@ -219,8 +218,8 @@ class SkuResponse(BaseModel):
     description: str | None
     uom: str
     company_hsn_sac_code_id: UUID
-    selected_tax_rate_id: UUID
-    tax_treatment_id: UUID
+    base_tax_treatment_id: UUID
+    selected_tax_rate_id: UUID | None
     tcs_check_required: bool
     status: CatalogueStatus
     created_at: datetime
@@ -234,8 +233,8 @@ class SkuUpdate(BaseModel):
     description: OptionalDescription | None = None
     uom: Uom | None = None
     company_hsn_sac_code_id: UUID | None = None
+    base_tax_treatment_id: UUID | None = None
     selected_tax_rate_id: UUID | None = None
-    tax_treatment_id: UUID | None = None
     tcs_check_required: bool | None = None
 
     @model_validator(mode="after")
@@ -244,8 +243,7 @@ class SkuUpdate(BaseModel):
             "name",
             "uom",
             "company_hsn_sac_code_id",
-            "selected_tax_rate_id",
-            "tax_treatment_id",
+            "base_tax_treatment_id",
             "tcs_check_required",
         ):
             if (

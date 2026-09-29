@@ -255,10 +255,41 @@ async def _insert_unmapped_gst_rate(
     )
 
 
+async def _insert_eligible_gst_rate(
+    engine: AsyncEngine,
+    *,
+    classification_id: UUID,
+    rate_percent: int,
+    status: str = "ACTIVE",
+) -> UUID:
+    tax_rate_id = await _insert_unmapped_gst_rate(
+        engine,
+        rate_percent=rate_percent,
+    )
+    await _execute(
+        engine,
+        "INSERT INTO core.company_hsn_sac_tax_rates "
+        "(company_hsn_sac_code_id, tax_rate_id, valid_from, status) "
+        "VALUES (:classification_id, :tax_rate_id, '2001-01-01', 'ACTIVE')",
+        {
+            "classification_id": classification_id,
+            "tax_rate_id": tax_rate_id,
+        },
+    )
+    if status != "ACTIVE":
+        await _execute(
+            engine,
+            "UPDATE core.tax_rates SET status = :status WHERE id = :tax_rate_id",
+            {"status": status, "tax_rate_id": tax_rate_id},
+        )
+    return tax_rate_id
+
+
 async def _insert_gst_treatment(
     engine: AsyncEngine,
     *,
     code: str,
+    status: str = "ACTIVE",
 ) -> UUID:
     tax_type_id = await _scalar(
         engine,
@@ -270,13 +301,14 @@ async def _insert_gst_treatment(
         INSERT INTO core.tax_treatments
             (code, name, tax_type_id, country_code, status)
         VALUES
-            (:code, :name, :tax_type_id, 'IN', 'ACTIVE')
+            (:code, :name, :tax_type_id, 'IN', :status)
         RETURNING id
         """,
         {
             "code": code,
             "name": f"Treatment {code}",
             "tax_type_id": tax_type_id,
+            "status": status,
         },
     )
 
@@ -322,7 +354,7 @@ async def test_service_catalogue_creation_and_duplicate_rules(
             "name": "GST Advisory",
             "company_hsn_sac_code_id": str(tax["classification_id"]),
             "selected_tax_rate_id": str(tax["tax_rate_id"]),
-            "tax_treatment_id": str(tax["treatment_id"]),
+            "base_tax_treatment_id": str(tax["treatment_id"]),
         },
     )
     duplicate = await _post(
@@ -382,7 +414,7 @@ async def test_goods_catalogue_creation_and_inactive_parent_rejection(
         "uom": "EA",
         "company_hsn_sac_code_id": str(tax["classification_id"]),
         "selected_tax_rate_id": str(tax["tax_rate_id"]),
-        "tax_treatment_id": str(tax["treatment_id"]),
+        "base_tax_treatment_id": str(tax["treatment_id"]),
     }
     sku = await _post(
         client,
@@ -409,6 +441,316 @@ async def test_goods_catalogue_creation_and_inactive_parent_rejection(
     assert sku.status_code == 201
     assert sku.json()["tcs_check_required"] is False
     assert inactive_parent.status_code == 409
+
+
+async def test_service_type_base_gst_nature_validation_matrix(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    tenant_id = await _insert_tenant(engine)
+    company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="SERVICES",
+    )
+    tax = await _seed_tax(
+        engine,
+        company_id=company_id,
+        classification_type="SAC",
+    )
+    category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="service-categories",
+        payload={"name": "GST Services"},
+    )
+    assert category.status_code == 201
+
+    zero_rate_id = await _insert_eligible_gst_rate(
+        engine,
+        classification_id=tax["classification_id"],
+        rate_percent=0,
+    )
+    nil_rated_id = await _insert_gst_treatment(engine, code="NIL_RATED")
+    exempt_id = await _insert_gst_treatment(engine, code="EXEMPT")
+    non_gst_id = await _insert_gst_treatment(engine, code="NON_GST")
+    zero_rated_id = await _insert_gst_treatment(engine, code="ZERO_RATED")
+    custom_id = await _insert_gst_treatment(engine, code="CUSTOM_GST")
+
+    sequence = 0
+
+    async def create_service(
+        *,
+        base_tax_treatment_id: UUID,
+        selected_tax_rate_id: UUID | None,
+    ):
+        nonlocal sequence
+        sequence += 1
+        return await _post(
+            client,
+            tenant_id=tenant_id,
+            company_id=company_id,
+            path="service-types",
+            payload={
+                "service_category_id": category.json()["id"],
+                "name": f"GST Service {sequence}",
+                "company_hsn_sac_code_id": str(tax["classification_id"]),
+                "base_tax_treatment_id": str(base_tax_treatment_id),
+                "selected_tax_rate_id": (
+                    str(selected_tax_rate_id)
+                    if selected_tax_rate_id is not None
+                    else None
+                ),
+            },
+        )
+
+    taxable = await create_service(
+        base_tax_treatment_id=tax["treatment_id"],
+        selected_tax_rate_id=tax["tax_rate_id"],
+    )
+    taxable_missing_rate = await create_service(
+        base_tax_treatment_id=tax["treatment_id"],
+        selected_tax_rate_id=None,
+    )
+    taxable_zero_rate = await create_service(
+        base_tax_treatment_id=tax["treatment_id"],
+        selected_tax_rate_id=zero_rate_id,
+    )
+    nil_rated = await create_service(
+        base_tax_treatment_id=nil_rated_id,
+        selected_tax_rate_id=zero_rate_id,
+    )
+    nil_missing_rate = await create_service(
+        base_tax_treatment_id=nil_rated_id,
+        selected_tax_rate_id=None,
+    )
+    nil_nonzero_rate = await create_service(
+        base_tax_treatment_id=nil_rated_id,
+        selected_tax_rate_id=tax["tax_rate_id"],
+    )
+    exempt = await create_service(
+        base_tax_treatment_id=exempt_id,
+        selected_tax_rate_id=None,
+    )
+    exempt_with_rate = await create_service(
+        base_tax_treatment_id=exempt_id,
+        selected_tax_rate_id=zero_rate_id,
+    )
+    non_gst = await create_service(
+        base_tax_treatment_id=non_gst_id,
+        selected_tax_rate_id=None,
+    )
+    non_gst_with_rate = await create_service(
+        base_tax_treatment_id=non_gst_id,
+        selected_tax_rate_id=zero_rate_id,
+    )
+    zero_rated = await create_service(
+        base_tax_treatment_id=zero_rated_id,
+        selected_tax_rate_id=None,
+    )
+    custom = await create_service(
+        base_tax_treatment_id=custom_id,
+        selected_tax_rate_id=None,
+    )
+
+    ineligible_rate_id = await _insert_unmapped_gst_rate(
+        engine,
+        rate_percent=12,
+    )
+    ineligible = await create_service(
+        base_tax_treatment_id=tax["treatment_id"],
+        selected_tax_rate_id=ineligible_rate_id,
+    )
+    inactive_rate_id = await _insert_eligible_gst_rate(
+        engine,
+        classification_id=tax["classification_id"],
+        rate_percent=5,
+        status="INACTIVE",
+    )
+    inactive_rate = await create_service(
+        base_tax_treatment_id=tax["treatment_id"],
+        selected_tax_rate_id=inactive_rate_id,
+    )
+
+    tds_type_id = await _scalar(
+        engine,
+        "INSERT INTO core.tax_types (code, name, country_code, status) "
+        "VALUES ('TDS', 'Tax Deducted at Source', 'IN', 'ACTIVE') RETURNING id",
+    )
+    tds_rate_id = await _scalar(
+        engine,
+        "INSERT INTO core.tax_rates "
+        "(tax_type_id, rate_percent, country_code, status) "
+        "VALUES (:tax_type_id, 10, 'IN', 'ACTIVE') RETURNING id",
+        {"tax_type_id": tds_type_id},
+    )
+    await _execute(
+        engine,
+        "INSERT INTO core.company_hsn_sac_tax_rates "
+        "(company_hsn_sac_code_id, tax_rate_id, valid_from, status) "
+        "VALUES (:classification_id, :tax_rate_id, '2001-01-01', 'ACTIVE')",
+        {
+            "classification_id": tax["classification_id"],
+            "tax_rate_id": tds_rate_id,
+        },
+    )
+    tds_treatment_id = await _scalar(
+        engine,
+        "INSERT INTO core.tax_treatments "
+        "(code, name, tax_type_id, country_code, status) "
+        "VALUES ('TAXABLE', 'TDS Taxable', :tax_type_id, 'IN', 'ACTIVE') "
+        "RETURNING id",
+        {"tax_type_id": tds_type_id},
+    )
+    non_gst_rate = await create_service(
+        base_tax_treatment_id=tax["treatment_id"],
+        selected_tax_rate_id=tds_rate_id,
+    )
+    wrong_tax_family = await create_service(
+        base_tax_treatment_id=tds_treatment_id,
+        selected_tax_rate_id=tds_rate_id,
+    )
+
+    await _execute(
+        engine,
+        "UPDATE core.tax_treatments SET status = 'INACTIVE' WHERE id = :id",
+        {"id": exempt_id},
+    )
+    inactive_treatment = await create_service(
+        base_tax_treatment_id=exempt_id,
+        selected_tax_rate_id=None,
+    )
+
+    assert taxable.status_code == 201
+    assert taxable.json()["base_tax_treatment_id"] == str(tax["treatment_id"])
+    assert taxable.json()["selected_tax_rate_id"] == str(tax["tax_rate_id"])
+    assert "tax_treatment_id" not in taxable.json()
+    assert taxable_missing_rate.status_code == 422
+    assert taxable_zero_rate.status_code == 201
+    assert taxable_zero_rate.json()["base_tax_treatment_id"] == str(
+        tax["treatment_id"]
+    )
+    assert nil_rated.status_code == 201
+    assert nil_missing_rate.status_code == 422
+    assert nil_nonzero_rate.status_code == 422
+    assert exempt.status_code == 201
+    assert exempt.json()["selected_tax_rate_id"] is None
+    assert exempt_with_rate.status_code == 422
+    assert non_gst.status_code == 201
+    assert non_gst.json()["selected_tax_rate_id"] is None
+    assert non_gst_with_rate.status_code == 422
+    assert zero_rated.status_code == 422
+    assert custom.status_code == 422
+    assert ineligible.status_code == 422
+    assert inactive_rate.status_code == 409
+    assert non_gst_rate.status_code == 422
+    assert wrong_tax_family.status_code == 422
+    assert inactive_treatment.status_code == 409
+
+
+async def test_sku_base_gst_nature_update_transitions_validate_final_state(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    tenant_id = await _insert_tenant(engine)
+    company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="GOODS",
+    )
+    tax = await _seed_tax(
+        engine,
+        company_id=company_id,
+        classification_type="HSN",
+    )
+    zero_rate_id = await _insert_eligible_gst_rate(
+        engine,
+        classification_id=tax["classification_id"],
+        rate_percent=0,
+    )
+    nil_rated_id = await _insert_gst_treatment(engine, code="NIL_RATED")
+    exempt_id = await _insert_gst_treatment(engine, code="EXEMPT")
+    category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="product-categories",
+        payload={"name": "Devices"},
+    )
+    product = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="products",
+        payload={
+            "product_category_id": category.json()["id"],
+            "name": "Terminal",
+        },
+    )
+    sku = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="skus",
+        payload={
+            "product_id": product.json()["id"],
+            "sku_code": "TERM-GST",
+            "name": "Terminal",
+            "uom": "EA",
+            "company_hsn_sac_code_id": str(tax["classification_id"]),
+            "base_tax_treatment_id": str(tax["treatment_id"]),
+            "selected_tax_rate_id": str(tax["tax_rate_id"]),
+        },
+    )
+    assert sku.status_code == 201
+    sku_url = f"/companies/{company_id}/skus/{sku.json()['id']}"
+    headers = {"X-Tenant-ID": str(tenant_id)}
+
+    exempt_retaining_rate = await client.patch(
+        sku_url,
+        headers=headers,
+        json={"base_tax_treatment_id": str(exempt_id)},
+    )
+    exempt = await client.patch(
+        sku_url,
+        headers=headers,
+        json={
+            "base_tax_treatment_id": str(exempt_id),
+            "selected_tax_rate_id": None,
+        },
+    )
+    taxable_missing_rate = await client.patch(
+        sku_url,
+        headers=headers,
+        json={"base_tax_treatment_id": str(tax["treatment_id"])},
+    )
+    taxable = await client.patch(
+        sku_url,
+        headers=headers,
+        json={
+            "base_tax_treatment_id": str(tax["treatment_id"]),
+            "selected_tax_rate_id": str(tax["tax_rate_id"]),
+        },
+    )
+    nil_rated = await client.patch(
+        sku_url,
+        headers=headers,
+        json={
+            "base_tax_treatment_id": str(nil_rated_id),
+            "selected_tax_rate_id": str(zero_rate_id),
+        },
+    )
+
+    assert exempt_retaining_rate.status_code == 422
+    assert exempt.status_code == 200
+    assert exempt.json()["selected_tax_rate_id"] is None
+    assert taxable_missing_rate.status_code == 422
+    assert taxable.status_code == 200
+    assert taxable.json()["selected_tax_rate_id"] == str(tax["tax_rate_id"])
+    assert nil_rated.status_code == 200
+    assert nil_rated.json()["base_tax_treatment_id"] == str(nil_rated_id)
+    assert nil_rated.json()["selected_tax_rate_id"] == str(zero_rate_id)
 
 
 async def test_business_nature_tenant_and_company_lifecycle_rules(
@@ -516,7 +858,7 @@ async def test_cross_company_parent_and_inactive_tax_reference_rejected(
         "name": "Advisory",
         "company_hsn_sac_code_id": str(first_tax["classification_id"]),
         "selected_tax_rate_id": str(first_tax["tax_rate_id"]),
-        "tax_treatment_id": str(first_tax["treatment_id"]),
+        "base_tax_treatment_id": str(first_tax["treatment_id"]),
     }
     cross_parent = await _post(
         client,
@@ -773,7 +1115,7 @@ async def test_service_type_reads_updates_tax_validation_and_lifecycle(
     )
     updated_treatment_id = await _insert_gst_treatment(
         engine,
-        code="SERVICE_EXPORT",
+        code="EXEMPT",
     )
     unmapped_rate_id = await _insert_unmapped_gst_rate(
         engine,
@@ -797,7 +1139,7 @@ async def test_service_type_reads_updates_tax_validation_and_lifecycle(
             "code": "GST-ADV",
             "company_hsn_sac_code_id": str(first_sac["classification_id"]),
             "selected_tax_rate_id": str(first_sac["tax_rate_id"]),
-            "tax_treatment_id": str(first_sac["treatment_id"]),
+            "base_tax_treatment_id": str(first_sac["treatment_id"]),
         },
     )
     assert service_type.status_code == 201
@@ -834,8 +1176,8 @@ async def test_service_type_reads_updates_tax_validation_and_lifecycle(
             "description": "  Updated description  ",
             "uom": "  HOUR  ",
             "company_hsn_sac_code_id": str(second_sac["classification_id"]),
-            "selected_tax_rate_id": str(eligible_rate_id),
-            "tax_treatment_id": str(updated_treatment_id),
+            "selected_tax_rate_id": None,
+            "base_tax_treatment_id": str(updated_treatment_id),
             "tcs_check_required": True,
         },
     )
@@ -864,8 +1206,8 @@ async def test_service_type_reads_updates_tax_validation_and_lifecycle(
     assert updated.json()["company_hsn_sac_code_id"] == str(
         second_sac["classification_id"]
     )
-    assert updated.json()["selected_tax_rate_id"] == str(eligible_rate_id)
-    assert updated.json()["tax_treatment_id"] == str(updated_treatment_id)
+    assert updated.json()["selected_tax_rate_id"] is None
+    assert updated.json()["base_tax_treatment_id"] == str(updated_treatment_id)
     assert updated.json()["tcs_check_required"] is True
     assert updated.json()["business_segment_id"] is None
     assert wrong_kind.status_code == 422
@@ -968,7 +1310,7 @@ async def test_catalogue_business_segment_assignment_current_state(
             "name": "GST Advisory",
             "company_hsn_sac_code_id": str(sac["classification_id"]),
             "selected_tax_rate_id": str(sac["tax_rate_id"]),
-            "tax_treatment_id": str(sac["treatment_id"]),
+            "base_tax_treatment_id": str(sac["treatment_id"]),
         },
     )
     product_category = await _post(
@@ -1000,7 +1342,7 @@ async def test_catalogue_business_segment_assignment_current_state(
             "uom": "EA",
             "company_hsn_sac_code_id": str(hsn["classification_id"]),
             "selected_tax_rate_id": str(hsn["tax_rate_id"]),
-            "tax_treatment_id": str(hsn["treatment_id"]),
+            "base_tax_treatment_id": str(hsn["treatment_id"]),
         },
     )
     assert service_type.json()["business_segment_id"] is None
@@ -1243,7 +1585,7 @@ async def test_sku_reads_updates_tax_validation_and_lifecycle(
     )
     updated_treatment_id = await _insert_gst_treatment(
         engine,
-        code="GOODS_EXPORT",
+        code="EXEMPT",
     )
     unmapped_rate_id = await _insert_unmapped_gst_rate(
         engine,
@@ -1278,7 +1620,7 @@ async def test_sku_reads_updates_tax_validation_and_lifecycle(
             "uom": "EA",
             "company_hsn_sac_code_id": str(first_hsn["classification_id"]),
             "selected_tax_rate_id": str(first_hsn["tax_rate_id"]),
-            "tax_treatment_id": str(first_hsn["treatment_id"]),
+            "base_tax_treatment_id": str(first_hsn["treatment_id"]),
         },
     )
     assert category.status_code == product.status_code == sku.status_code == 201
@@ -1305,8 +1647,8 @@ async def test_sku_reads_updates_tax_validation_and_lifecycle(
             "description": "  Current catalogue description  ",
             "uom": "  UNIT  ",
             "company_hsn_sac_code_id": str(second_hsn["classification_id"]),
-            "selected_tax_rate_id": str(eligible_rate_id),
-            "tax_treatment_id": str(updated_treatment_id),
+            "selected_tax_rate_id": None,
+            "base_tax_treatment_id": str(updated_treatment_id),
             "tcs_check_required": True,
         },
     )
@@ -1337,8 +1679,8 @@ async def test_sku_reads_updates_tax_validation_and_lifecycle(
     assert updated.json()["company_hsn_sac_code_id"] == str(
         second_hsn["classification_id"]
     )
-    assert updated.json()["selected_tax_rate_id"] == str(eligible_rate_id)
-    assert updated.json()["tax_treatment_id"] == str(updated_treatment_id)
+    assert updated.json()["selected_tax_rate_id"] is None
+    assert updated.json()["base_tax_treatment_id"] == str(updated_treatment_id)
     assert updated.json()["business_segment_id"] is None
     assert wrong_kind.status_code == 422
     assert cross_company.status_code == 422
@@ -1421,7 +1763,7 @@ async def test_goods_hierarchy_parent_inactivation_requires_inactive_children(
             "uom": "EA",
             "company_hsn_sac_code_id": str(tax["classification_id"]),
             "selected_tax_rate_id": str(tax["tax_rate_id"]),
-            "tax_treatment_id": str(tax["treatment_id"]),
+            "base_tax_treatment_id": str(tax["treatment_id"]),
         },
     )
     category_url = (

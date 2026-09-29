@@ -57,7 +57,7 @@
 | Numeric tax rate | GST-only rate master with embedded `tax_type` text | **Use `tax_rates.tax_type_id`** | Controlled numeric rates belong to a tax family without hardcoded family strings |
 | HSN/SAC ↔ rate | `tax_classification_rates` | **Replace with `company_hsn_sac_tax_rates`** | One Company HSN/SAC code can have multiple effective eligible rates and only those rates should be selectable |
 | Tax treatment | Code repeated on catalogue items without a controlled master | **Add `tax_treatments`** | TAXABLE, NIL_RATED, EXEMPT and NON_GST are controlled treatments distinct from a numeric 0% rate |
-| Service/SKU tax mapping tables | Separate effective-dated assignment tables | **Store current Company HSN/SAC, Tax Treatment, and selected eligible rate on `service_types` / `skus`** | Company HSN/SAC-to-rate mapping validates selection; finalized lines snapshot treatment/rate/components and items do not hold uncontrolled percentage text |
+| Service/SKU tax mapping tables | Separate effective-dated assignment tables | **Store current Company HSN/SAC, Base GST Nature, and conditional selected eligible rate on `service_types` / `skus`** | Company HSN/SAC-to-rate mapping validates rate selection where required; finalized lines snapshot base nature/final outcome/rate/components and items do not hold uncontrolled percentage text |
 | Tax statutory identities | TDS/TCS-only `statutory_sections` plus free-text GST component codes | **Use `tax_statutory_codes` + `tax_statutory_code_rates`** | COMPONENT and SECTION identities share one controlled layer while ordinary GST item rates remain separate |
 | Supply/GST reference types | `type_of_supply`, `gst_registration_type`, `tax_component` in Billing | **Move `supply_types` / `gst_registration_types` to Company/Core reference only if configurable data is needed; do not create `tax_components` table now** | Supply/registration types are shared reference vocabulary; CGST/SGST/IGST are derived components and can remain controlled codes |
 | Numbering applicability | Many nullable columns on `document_sequences` | **Use `document_sequence_conditions`** | New supported series parameters should not require adding a DB column each time |
@@ -1463,7 +1463,7 @@ Regardless of policy default, finalized transactions/documents preserve the actu
 ## 21. `tax_treatments` — KEEP
 
 **What data is stored**
-- Controlled Tax/GST Treatment values. Initial confirmed GST values are `TAXABLE`, `NIL_RATED`, `EXEMPT`, and `NON_GST`.
+- Controlled Tax/GST nature and treatment references. For current Service Type/SKU catalogue use, the confirmed Base GST Nature values are `TAXABLE`, `NIL_RATED`, `EXEMPT`, and `NON_GST`.
 
 **Columns**
 - `id` UUID PRIMARY KEY
@@ -1478,30 +1478,30 @@ Regardless of policy default, finalized transactions/documents preserve the actu
 **Physical constraints and boundaries**
 - UNIQUE (`tax_type_id`, `country_code`, `code`).
 - `status` is controlled as `ACTIVE` or `INACTIVE`; referenced treatments are inactivated rather than deleted.
-- Current confirmed GST codes are `TAXABLE`, `NIL_RATED`, `EXEMPT`, and `NON_GST`; no additional code such as `ZERO_RATED` is added.
+- Current confirmed catalogue Base GST Nature codes are `TAXABLE`, `NIL_RATED`, `EXEMPT`, and `NON_GST`; `ZERO_RATED` is a possible transaction-level result and is not added as a catalogue choice.
 - `country_code` references `core.countries.code` with restrictive/no-cascade behavior.
 - No business defaults are defined.
-- Treatment describes tax nature, not a percentage. Do not infer it only from `rate_percent` or store rates/calculation logic here.
+- For Service Type/SKU use, the reference describes Base GST Nature, not a percentage or final transaction outcome. Do not infer it only from `rate_percent` or store rates/calculation logic here.
 
 **Relationships**
 - Tax Type 1:N Tax Treatments
-- Referenced as the current treatment by Service Types and SKUs
-- Final invoice lines snapshot the treatment code/name used
+- Referenced as the current Base GST Nature by Service Types and SKUs through `base_tax_treatment_id`
+- Final invoice lines snapshot the Base GST Nature and separately preserve the transaction-level outcome and tax facts used
 
 **Why this table exists**
-1. Treatment states what kind of tax treatment applies; it is not a percentage.
+1. For catalogue use, Base GST Nature states the item's inherent GST nature; it is not a percentage or the complete transaction result.
 2. It prevents a numeric 0% rate from being used as a substitute for NIL_RATED, EXEMPT, or NON_GST.
 3. It provides consistent controlled choices across Service and Goods catalogues.
-4. It lets Billing validate the treatment/rate combination explicitly.
+4. It lets catalogue validation enforce the Base GST Nature/rate matrix and lets future Billing start from an explicit item fact.
 5. It gives historical snapshots a stable source while preserving the actual issued value.
 6. It prevents the term “Tax Rate Type” from being used for treatment semantics.
 
 **What happens if removed/merged**
 - Treatment codes would be repeated as uncontrolled fields or inferred incorrectly from the numeric rate. Merging treatments into `tax_rates` would erase the distinction between `0%` and the legal/product treatment of the supply.
 
-**Decision status:** KEEP — confirmed controlled master; do not add `ZERO_RATED` or other values without a later product decision.
+**Decision status:** KEEP — confirmed controlled master; restrict current Service Type/SKU catalogue assignment to the four approved Base GST Nature codes and do not add `ZERO_RATED` as a catalogue value.
 
-**Flow stage:** Tax reference maintenance → Service Type/SKU current treatment → Billing validation → immutable line snapshot.
+**Flow stage:** Tax reference maintenance → Service Type/SKU Base GST Nature → future Billing transaction-context resolution → immutable line snapshot.
 
 ---
 
@@ -1776,12 +1776,12 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 - Why: references the same-Company SAC statutory classification used for this Service.
 
 `selected_tax_rate_id`
-- Type: UUID; Nullability: NOT NULL; Default: none; FK: `tax_rates.id`.
-- Why: stores the current/default eligible GST rate used to prefill Billing, subject to dated eligibility validation.
+- Type: UUID; Nullability: NULL; Default: none; FK: `tax_rates.id`.
+- Why: stores the current/default eligible GST rate when Base GST Nature requires one; `EXEMPT` and `NON_GST` deliberately have no selected rate.
 
-`tax_treatment_id`
+`base_tax_treatment_id`
 - Type: UUID; Nullability: NOT NULL; Default: none; FK: `tax_treatments.id`.
-- Why: records the applicable current GST Tax Treatment separately from the numeric rate.
+- Why: records the item's controlled Base GST Nature separately from the numeric rate and future transaction-level GST outcome.
 
 `business_segment_id`
 - Type: UUID; Nullability: NULL; Default: none; FK: `cost_center_business_segments.id`.
@@ -1807,8 +1807,10 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 - Partial UNIQUE (`company_id`, `code`) WHERE `code IS NOT NULL`.
 - `service_category_id` and SAC must belong to the same Company; backend/database protection must prevent cross-Company references.
 - `company_hsn_sac_code_id` must have `classification_type = SAC`.
-- `selected_tax_rate_id` must be a GST Tax Rate and currently eligible for the selected SAC through `company_hsn_sac_tax_rates`.
-- `tax_treatment_id` must identify an applicable GST Tax Treatment for current AR use.
+- `base_tax_treatment_id` must identify an active GST treatment in the matching jurisdiction whose code is exactly `TAXABLE`, `NIL_RATED`, `EXEMPT`, or `NON_GST`; other codes, including `ZERO_RATED`, are invalid for catalogue use.
+- `TAXABLE` requires `selected_tax_rate_id` to be an active GST Tax Rate currently eligible for the selected SAC through `company_hsn_sac_tax_rates`.
+- `NIL_RATED` requires the same active eligible relationship and a numeric rate of exactly 0%; a 0% rate never changes the Base GST Nature by inference.
+- `EXEMPT` and `NON_GST` require `selected_tax_rate_id` to be NULL; no artificial 0% rate is assigned.
 - `business_segment_id`, when populated, must reference a Business Segment owned by the same Company; a direct nullable FK limits the Service Type to at most one current Segment.
 - Pricing fields do not belong on this catalogue table.
 - Historically used Service Types are normally inactivated rather than deleted.
@@ -1816,19 +1818,19 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 **Relationships**
 - Category 1:N Service Types
 - Company SAC 1:N Service Types; the referenced row must have `classification_type = SAC`
-- Tax Treatment 1:N Service Types
+- Tax Treatment master 1:N Service Types as Base GST Nature
 - Business Segment 1:N Service Types (nullable from Service Type)
 
 **Why this table exists**
 1. Service Type is the lowest billable service identity used by SO/Billing.
 2. Commercial name and selected SAC are Company-configured while the SAC retains its statutory meaning.
-3. `selected_tax_rate_id` stores the one current/default eligible rate used to prefill Billing without asking users on every invoice; it must remain valid for `company_hsn_sac_code_id`.
+3. Nullable `selected_tax_rate_id` stores the current/default eligible rate only for Base GST Natures that require one; it must remain valid for `company_hsn_sac_code_id`.
 4. The optional direct Business Segment relationship supports current management reporting without a mapping table.
 5. TCS mandatory-check flag can force an applicability decision without automatically charging TCS.
 6. Removing it would leave no stable service item for pricing, tax classification or reporting.
 
 **Current tax rule**
-- GST/Tax Treatment is a classification, not a numeric Tax Rate Type. The treatment and eligible rate combination must be valid before the item is billable.
+- Base GST Nature is a catalogue classification, not a numeric Tax Rate Type or the final Billing outcome. Validate the final nature/rate combination before the item is billable; a later Billing resolver derives the transaction result from Supply Type and other transaction context.
 
 ---
 
@@ -1932,7 +1934,7 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 **Constraints and business validation**
 - Partial UNIQUE (`company_id`, `code`) WHERE `code IS NOT NULL`.
 - `product_category_id` must belong to the same Company; backend/database protection must prevent cross-Company references.
-- Product remains commercial hierarchy only. Final HSN, UOM, selected Tax Rate, and Tax Treatment remain on SKU.
+- Product remains commercial hierarchy only. Final HSN, UOM, conditional selected Tax Rate, and Base GST Nature remain on SKU.
 - `product_category_id` is immutable after creation. A classification change inactivates the old Product and creates a replacement under the correct category.
 - Historically used Products are inactivated rather than deleted; inactive is terminal and inactive rows are read-only.
 - Inactivation is rejected while any active SKU references the Product. Inactive SKUs do not block inactivation, and children are never moved or cascade-deleted.
@@ -1991,12 +1993,12 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 - Why: references the same-Company HSN statutory classification used for this SKU.
 
 `selected_tax_rate_id`
-- Type: UUID; Nullability: NOT NULL; Default: none; FK: `tax_rates.id`.
-- Why: stores the current/default eligible GST rate used to prefill Billing, subject to dated eligibility validation.
+- Type: UUID; Nullability: NULL; Default: none; FK: `tax_rates.id`.
+- Why: stores the current/default eligible GST rate when Base GST Nature requires one; `EXEMPT` and `NON_GST` deliberately have no selected rate.
 
-`tax_treatment_id`
+`base_tax_treatment_id`
 - Type: UUID; Nullability: NOT NULL; Default: none; FK: `tax_treatments.id`.
-- Why: records the applicable current GST Tax Treatment separately from the numeric rate.
+- Why: records the item's controlled Base GST Nature separately from the numeric rate and future transaction-level GST outcome.
 
 `business_segment_id`
 - Type: UUID; Nullability: NULL; Default: none; FK: `cost_center_business_segments.id`.
@@ -2022,8 +2024,10 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 - UNIQUE (`company_id`, `sku_code`).
 - `product_id` and HSN must belong to the same Company; backend/database protection must prevent cross-Company references.
 - `company_hsn_sac_code_id` must have `classification_type = HSN`.
-- `selected_tax_rate_id` must be a GST Tax Rate and currently eligible for the selected HSN through `company_hsn_sac_tax_rates`.
-- `tax_treatment_id` must identify an applicable GST Tax Treatment for current AR use.
+- `base_tax_treatment_id` must identify an active GST treatment in the matching jurisdiction whose code is exactly `TAXABLE`, `NIL_RATED`, `EXEMPT`, or `NON_GST`; other codes, including `ZERO_RATED`, are invalid for catalogue use.
+- `TAXABLE` requires `selected_tax_rate_id` to be an active GST Tax Rate currently eligible for the selected HSN through `company_hsn_sac_tax_rates`.
+- `NIL_RATED` requires the same active eligible relationship and a numeric rate of exactly 0%; a 0% rate never changes the Base GST Nature by inference.
+- `EXEMPT` and `NON_GST` require `selected_tax_rate_id` to be NULL; no artificial 0% rate is assigned.
 - `business_segment_id`, when populated, must reference a Business Segment owned by the same Company; a direct nullable FK limits the SKU to at most one current Segment.
 - `product_id` is immutable after creation. A parent/classification change inactivates the old SKU and creates a replacement under the correct Product.
 - Historically used SKUs are inactivated rather than deleted; inactive is terminal, remains readable, and cannot be edited or reassigned.
@@ -2031,19 +2035,19 @@ No additional Supply Types or Supply Type calculation/resolution rules are intro
 **Relationships**
 - Product 1:N SKUs
 - Company HSN 1:N SKUs; the referenced row must have `classification_type = HSN`
-- Tax Treatment 1:N SKUs
+- Tax Treatment master 1:N SKUs as Base GST Nature
 - Business Segment 1:N SKUs (nullable from SKU)
 
 **Why this table exists**
 1. SKU is the actual billable goods identity.
 2. It owns SKU code/UOM and final HSN selection rather than Product Category.
-3. `selected_tax_rate_id` stores the one current/default eligible rate used to prefill Billing; it must remain valid for `company_hsn_sac_code_id`.
+3. Nullable `selected_tax_rate_id` stores the current/default eligible rate only for Base GST Natures that require one; it must remain valid for `company_hsn_sac_code_id`.
 4. The optional direct Business Segment relationship supports current management reporting without a mapping table.
 5. TCS applicability-check behavior can be configured per SKU.
 6. Removing it would make Product too coarse for variants, HSN/UOM or customer commercial lines.
 
 **Current tax rule**
-- GST/Tax Treatment is a classification, not a numeric Tax Rate Type. The treatment and eligible rate combination must be valid before the item is billable.
+- Base GST Nature is a catalogue classification, not a numeric Tax Rate Type or the final Billing outcome. Validate the final nature/rate combination before the item is billable; a later Billing resolver derives the transaction result from Supply Type and other transaction context.
 
 ---
 
@@ -3985,7 +3989,7 @@ PostgreSQL financial transaction tables remain the structured financial truth; `
 - `company_gst_registration_locations` — direct nullable `company_locations.gst_registration_id` under current 1:N rule.
 - `company_base_currency` — base currency is a direct Company FK.
 - separate `billing_currencies` and `payment_currencies` — merged into `company_ar_currencies` with purpose flags.
-- `service_tax_assignments` / `sku_tax_assignments` and earlier `ar_service_tax_assignment` / `ar_sku_tax_assignment` names — current Company HSN/SAC, Tax Treatment, and `selected_tax_rate_id` are stored directly on Service Type/SKU for MVP.
+- `service_tax_assignments` / `sku_tax_assignments` and earlier `ar_service_tax_assignment` / `ar_sku_tax_assignment` names — current Company HSN/SAC, Base GST Nature, and conditional `selected_tax_rate_id` are stored directly on Service Type/SKU for MVP.
 - `hsn_code_master` + `sac_code_master` and earlier `core_tax_classification` — replaced by Company-owned `company_hsn_sac_codes`; there is no global preloaded HSN/SAC catalogue.
 - `tax_classifications` — renamed/replaced by `company_hsn_sac_codes` so HSN/SAC cannot be confused with a broad tax family.
 - `tax_classification_rates` and earlier `core_classification_gst_rate` — renamed/replaced by `company_hsn_sac_tax_rates`.
@@ -5281,7 +5285,7 @@ SO/manual Billing Draft → validate classification/context/tax/LUT → Submit �
 
 ### What data is stored
 
-Service and Goods transaction lines for every AR Document. A line keeps a reference to the source catalogue/Sales Order identity and also stores the description, UOM, HSN/SAC, prices, tax treatment, rates, components, TCS determination, and amounts actually used.
+Service and Goods transaction lines for every AR Document. A line keeps a reference to the source catalogue/Sales Order identity and also stores the description, UOM, HSN/SAC, prices, Base GST Nature, transaction-level GST outcome where applicable, actual rates, components, TCS determination, and amounts actually used.
 
 ### Important columns
 
@@ -5298,7 +5302,8 @@ description_snapshot
 uom_snapshot
 hsn_sac_code_snapshot
 hsn_sac_description_snapshot nullable
-tax_treatment_code_snapshot           -- TAXABLE / NIL_RATED / EXEMPT / NON_GST
+base_tax_treatment_code_snapshot      -- TAXABLE / NIL_RATED / EXEMPT / NON_GST
+zero_rated_outcome_snapshot nullable  -- transaction result/context, not catalogue nature
 quantity
 unit_rate
 discount_type nullable
@@ -5347,7 +5352,7 @@ Repeating line columns would overload the header and impose an arbitrary item li
 
 ### Current decision
 
-Propose one line table with strict line-type constraints. Billing automatically resolves `revenue_gl_account_id` using specific Supply Type + HSN/SAC first, then the general Supply-Type mapping. Applicable CGST/SGST/IGST account references resolve from Company Tax GL mappings. Missing or ambiguous active mappings block finalization; the invoice user does not normally choose these accounts. GST/Tax Treatment uses the confirmed four-value classification; advanced TCS charging rules remain **REVIEW** before affected charging paths are released.
+Propose one line table with strict line-type constraints. Billing automatically resolves `revenue_gl_account_id` using specific Supply Type + HSN/SAC first, then the general Supply-Type mapping. Applicable CGST/SGST/IGST account references resolve from Company Tax GL mappings. Missing or ambiguous active mappings block finalization; the invoice user does not normally choose these accounts. Catalogue Base GST Nature uses the confirmed four-value classification; future Billing derives the final outcome from Supply Type and other transaction context and snapshots both the base nature and actual result. Advanced TCS charging rules remain **REVIEW** before affected charging paths are released.
 
 ### Flow
 
@@ -6739,7 +6744,7 @@ The following rules apply across the downstream candidate tables:
 14. Successful e-invoice/IRN generation independently hard-locks the issued document. Corrections use the applicable cancellation, amendment, CN, or DN process.
 15. `CUSTOMER_SALE` and `INTER_UNIT` are explicit transaction classifications. Inter-Unit documents use same-Company source/destination GST Registration and Location, never model the destination as a Customer, and never create normal AR outstanding.
 16. Ship-To is discriminated as `CUSTOMER_LOCATION` or `COMPANY_LOCATION`; only its matching FK is populated and the final document snapshots the address.
-17. GST/Tax Treatment resolves from `tax_treatments` and is snapshotted on the final line as one of `TAXABLE`, `NIL_RATED`, `EXEMPT`, or `NON_GST`; it is not a numeric Tax Rate Type.
+17. Catalogue Base GST Nature resolves from `tax_treatments` as one of `TAXABLE`, `NIL_RATED`, `EXEMPT`, or `NON_GST`; it is not a numeric Tax Rate Type or the final transaction GST outcome. `ZERO_RATED` is transaction context and not a catalogue nature.
 18. Reminder send-time checks always re-evaluate positive outstanding balance, paid/cancelled status, hold, manual stop, and current applicable control. Planning an occurrence does not guarantee sending.
 19. The shared audit stream supplements, rather than replaces, typed approval, relation, allocation, transfer, filing, e-invoice, artifact, delivery, and reminder history.
 20. Effective `revenue_gl_mappings` use the invoice date, already-resolved Supply Type, and line HSN/SAC. A specific Supply Type + HSN/SAC mapping wins over a general Supply-Type-only mapping.
@@ -6747,9 +6752,9 @@ The following rules apply across the downstream candidate tables:
 22. Applicable CGST, SGST, and IGST COMPONENT identities resolve through effective `tax_gl_account_mappings` using `tax_statutory_code_id`. Revenue and tax accounts are not normally selected by the invoice user.
 23. Finalized AR Documents/Lines retain the resolved receivable, revenue, and applicable tax GL Account IDs. Later mapping or hierarchy changes do not reclassify historical transactions.
 24. HSN/SAC is a statutory classification and is not permanently equal to one GL Account. Supply Type provides transaction context; the optional HSN/SAC condition refines a mapping.
-25. `tax_types` identifies the broad family; `company_hsn_sac_codes` identifies Company-configured item classifications; `tax_rates` stores ordinary numeric rates; `company_hsn_sac_tax_rates` stores effective eligibility; `tax_treatments` stores treatment; and `tax_statutory_codes`/`tax_statutory_code_rates` store COMPONENT/SECTION identities and their effective section-rate cases. These concepts must not be merged.
-26. Service Type must reference a Company SAC and SKU must reference a Company HSN. Their direct `selected_tax_rate_id` must be eligible through an active effective `company_hsn_sac_tax_rates` row for the transaction/setup date.
-27. HSN/SAC never determines CGST versus SGST versus IGST by itself. Seller GST context, Place of Supply and jurisdiction determine the applicable component; the finalized line snapshots code/description as required, Tax Treatment, applied rate, components and amounts.
+25. `tax_types` identifies the broad family; `company_hsn_sac_codes` identifies Company-configured item classifications; `tax_rates` stores ordinary numeric rates; `company_hsn_sac_tax_rates` stores effective eligibility; `tax_treatments` supplies controlled Base GST Nature references for catalogue use; and `tax_statutory_codes`/`tax_statutory_code_rates` store COMPONENT/SECTION identities and their effective section-rate cases. These concepts must not be merged.
+26. Service Type must reference a Company SAC and SKU must reference a Company HSN. `TAXABLE` and `NIL_RATED` require direct `selected_tax_rate_id` eligibility through an active effective `company_hsn_sac_tax_rates` row for the transaction/setup date; `NIL_RATED` additionally requires exactly 0%. `EXEMPT` and `NON_GST` require NULL.
+27. HSN/SAC and Base GST Nature never determine the complete GST outcome or CGST versus SGST versus IGST by themselves. Future Billing considers Supply Type, seller GST context, Place of Supply, transaction date, and LUT context; the finalized line snapshots code/description as required, Base GST Nature, zero-rated outcome where applicable, actual rate, components and amounts.
 28. `gl_accounts` stores stable posting-account identity only. Groups, parents, hierarchy placements, classifications, and balances do not belong on that table.
 29. Account Group parentage and GL hierarchy placement are effective-dated,
 same-Company, same-hierarchy, non-cyclic where parentage applies, and
@@ -6784,6 +6789,7 @@ Open decisions before downstream schema freeze are:
 
 | Date | Flow | Old table / design | Action | New table / design | Reason |
 |---|---|---|---|---|---|
+| 2026-09-29 | Catalogue Base GST Nature | `service_types.tax_treatment_id` / `skus.tax_treatment_id` implied a complete transaction treatment and selected GST rates were mandatory for every item | SUPERSEDE / IMPLEMENT | `base_tax_treatment_id` on Service Type/SKU plus conditional nullable `selected_tax_rate_id` | Catalogue items store only TAXABLE/NIL_RATED/EXEMPT/NON_GST Base GST Nature. TAXABLE requires an eligible rate, NIL_RATED requires eligible 0%, and EXEMPT/NON_GST require NULL. ZERO_RATED remains a transaction-context result for future Billing resolution, not a catalogue nature |
 | 2026-09-22 | Company Billing Document Template and Branding | Company/document-type template rows and required `show_*` values permitted multiple current selections per Company; branding-current cardinality was unresolved | SUPERSEDE / IMPLEMENT | Company-wide versioned `company_document_templates` selection plus immutable versioned `company_document_branding` | Migration 0027 makes current selection independent of PI/TI/CN/DN, enforces at most one ACTIVE selection and branding row per Company, preserves/retire existing history without guessing a winner, retains legacy `document_type` and `show_*` columns only as nullable non-governing data, and keeps same-Company stored-file/branding integrity |
 | 2026-09-22 | Company Location Address History and Lifecycle | Approved version concept was not implemented; current address PATCH was destructive and inactive Locations remained mutable in assignment paths | FINALIZE / IMPLEMENT | `core.company_location_versions`; atomic current projection/version updates; terminal Location inactivation | Migration 0026 uses the existing Country/Subdivision representation, restrictive FKs, inclusive non-overlapping DATE ranges, one open version, deterministic creation-date backfill, and stable Location identity. MVP edits are immediately effective; future/backdated workflows remain excluded, and inactive Locations remain readable but cannot be reactivated or mutated |
 | 2026-09-21 | GL Account Hierarchy Placement / Group Inactivation | Root GL placement and mapping-table physical details were open; Group inactivation behavior with current/future children was unresolved | FREEZE BUSINESS AND PHYSICAL CONTRACT | Nullable-Group `core.gl_account_group_mappings` contract for a future Migration 0018; transactional Group-inactivation guard | Distinguish unplaced, Group-placed, and intentionally root-placed GLs; preserve inclusive effective history and same-scope integrity; prohibit overlap and automatic restructuring while keeping Account Determination separate |

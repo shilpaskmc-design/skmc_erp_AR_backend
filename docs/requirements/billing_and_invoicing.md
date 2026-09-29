@@ -158,7 +158,7 @@ Service line:
 - GST Rate
 - Tax Amount
 
-Each line records GST/Tax Treatment as one of `TAXABLE`, `NIL_RATED`, `EXEMPT`, or `NON_GST`. This is a controlled treatment classification, not a numeric tax-rate type; numeric `0%` does not imply NIL_RATED, EXEMPT, or NON_GST.
+Each catalogue item supplies a Base GST Nature of `TAXABLE`, `NIL_RATED`, `EXEMPT`, or `NON_GST`. This is an item master-data fact, not a numeric tax-rate type or the final transaction GST outcome; numeric `0%` does not imply `NIL_RATED`. `ZERO_RATED` is not a catalogue Base GST Nature.
 
 Goods line:
 
@@ -177,18 +177,21 @@ Tax resolution for a Service line:
 ```text
 Select Service Type
 → resolve its Company-configured SAC
-→ load only effective eligible rates from the Company SAC-to-rate mapping
-→ select/resolve and revalidate the applicable rate
-→ apply the configured Tax Treatment
-→ use seller GST context and Place of Supply to determine CGST + SGST or IGST
-→ snapshot SAC code/description as required, treatment, applied rate, components and amounts
+→ start from its Base GST Nature
+→ when required, load only effective eligible rates from the Company SAC-to-rate mapping
+→ revalidate the selected rate for the transaction date
+→ use Supply Type, seller GST context, Place of Supply, transaction date, and LUT context where applicable to derive the final GST outcome
+→ determine CGST + SGST or IGST where applicable
+→ snapshot SAC code/description as required, Base GST Nature, transaction-level zero-rated outcome where applicable, actual rate, components and amounts
 ```
 
 Goods follow the same process from SKU to the Company's configured HSN. The HSN/SAC code does not itself determine CGST versus SGST versus IGST.
 
-The current catalogue default is stored directly as `service_types.selected_tax_rate_id` or `skus.selected_tax_rate_id` and must be eligible through `company_hsn_sac_tax_rates`. Billing revalidates it for the transaction date. No separate service/SKU tax-assignment table is part of the MVP.
+The current catalogue selection is stored directly as nullable `service_types.selected_tax_rate_id` or `skus.selected_tax_rate_id`. `TAXABLE` requires an eligible rate, `NIL_RATED` requires an eligible 0% rate, and `EXEMPT`/`NON_GST` require null. Billing revalidates a selected rate for the transaction date. No separate service/SKU tax-assignment table is part of the MVP.
 
-Tax Type, Company HSN/SAC, numeric Tax Rate, HSN/SAC-to-rate eligibility, Tax Treatment, and Tax Statutory Codes/Rates remain separate controlled concepts. GST COMPONENT and TDS/TCS SECTION identities do not merge with ordinary GST item rates.
+Tax Type, Company HSN/SAC, numeric Tax Rate, HSN/SAC-to-rate eligibility, Base GST Nature, transaction-level GST outcome, and Tax Statutory Codes/Rates remain separate controlled concepts. GST COMPONENT and TDS/TCS SECTION identities do not merge with ordinary GST item rates.
+
+The future Billing GST resolver starts from Base GST Nature and centrally considers Supply Type, seller GST context, Place of Supply, transaction date, and LUT context where applicable before determining the final GST outcome and GST components. This requirement records that future resolver's inputs and historical-output contract only; it does not introduce a resolver or configurable per-item tax-rule engine in the current catalogue slice. Current `B2B`, `B2C`, `EXPWOP`, `EXPWP`, `SEZWOP`, and `SEZWP` terminology and LUT behavior remain unchanged.
 
 ---
 
@@ -320,12 +323,14 @@ Examples:
 - customer address
 - HSN/SAC
 - HSN/SAC description where required
-- GST rate
-- GST/Tax Treatment
-- tax amounts
+- Base GST Nature
+- transaction-level zero-rated outcome where applicable
+- actual GST rate used
+- CGST/SGST/IGST components, rates, and amounts
 - resolved Receivable, Revenue, and applicable Tax GL Account IDs
 - Supply Type
 - Place of Supply
+- LUT reference/context where applicable
 - exchange rate
 - selected Payment Term / credit-days context and derived due date
 - bank information shown

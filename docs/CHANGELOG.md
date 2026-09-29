@@ -34,6 +34,20 @@ Use `CHG-YYYY-MM-DD-NNN`, where the final three digits are a sequence for that d
 - **Implementation impact:** State whether implementation work is required, prohibited, completed, or separately pending.
 - **Open follow-ups:** List unresolved consequences without deciding them by assumption.
 
+### CHG-2026-09-29-001 — Catalogue Base GST Nature and Conditional GST Rate
+
+- **Change ID:** CHG-2026-09-29-001
+- **Date:** 2026-09-29
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Tax / AR Catalogue / Billing Direction
+- **Source / discussion context:** Explicitly approved GST catalogue business decision for Service Types and SKUs.
+- **Decision:** Rename catalogue `tax_treatment_id` to `base_tax_treatment_id` and restrict current Service Type/SKU use to active GST `TAXABLE`, `NIL_RATED`, `EXEMPT`, and `NON_GST` treatments in the matching jurisdiction. Make `selected_tax_rate_id` nullable: TAXABLE requires an active eligible GST rate, NIL_RATED requires an active eligible 0% GST rate, and EXEMPT/NON_GST require NULL. Base GST Nature is an item fact; `ZERO_RATED` is a transaction-context result that a future Billing resolver may derive from Supply Type and other transaction facts.
+- **Reason:** Prevent catalogue configuration from representing a transaction's complete GST result, preserve the distinction between statutory nature and numeric rate, and avoid artificial 0% rates for exempt or non-GST items.
+- **Supersedes:** CHG-2026-09-17-015 and CHG-2026-09-19-001 only where their catalogue Tax Treatment wording implied the final GST outcome or required a selected rate for every item. Their catalogue ownership, lifecycle, HSN/SAC, isolation, and other validation decisions remain unchanged.
+- **Affected documents:** `requirements/tax_satutory_rules.md`; `requirements/COMPANY_CONFIGURATION.md`; `requirements/billing_and_invoicing.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Migration 0033 preserves and renames existing treatment references, makes selected rates nullable, rejects unsafe existing data, and retains Tax Treatment/Tax Rate FKs under semantic constraint names. Catalogue models, schemas, services, responses, and focused tests use `base_tax_treatment_id` and validate the final nature/rate state. No Billing resolver, Supply Type redesign, or generic tax-rule engine is introduced.
+- **Open follow-ups:** Implement the centralized Billing GST resolver and finalized invoice-line tax snapshots in a separately approved Billing slice. Future Service Type/SKU Excel sheets should use `Base GST Nature Code`, allow only the four approved catalogue values, and make Selected GST Rate conditional; this change does not expand the current Company import.
+
 ### CHG-2026-09-28-001 — Company Configuration GST Excel Import
 
 - **Change ID:** CHG-2026-09-28-001

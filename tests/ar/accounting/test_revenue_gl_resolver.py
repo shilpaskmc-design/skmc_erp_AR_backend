@@ -139,7 +139,7 @@ async def _create_service_type(session: AsyncSession, company_id, name):
         name=name,
         company_hsn_sac_code_id=hsn_sac_code_id,
         selected_tax_rate_id=tax_rate_id,
-        tax_treatment_id=tax_treatment_id,
+        base_tax_treatment_id=tax_treatment_id,
         status=CatalogueStatus.ACTIVE,
     )
     session.add(st)
@@ -210,7 +210,7 @@ async def _create_sku(session: AsyncSession, company_id, code):
         uom="NOS",
         company_hsn_sac_code_id=hsn_sac_code_id,
         selected_tax_rate_id=tax_rate_id,
-        tax_treatment_id=tax_treatment_id,
+        base_tax_treatment_id=tax_treatment_id,
         status=CatalogueStatus.ACTIVE,
     )
     session.add(sku)

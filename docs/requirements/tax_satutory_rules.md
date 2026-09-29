@@ -16,7 +16,7 @@ This is the current India-first classification design. A future foreign-seller r
 
 They are separate from company-defined catalogue naming.
 
-They are also separate from Tax Type, numeric Tax Rate, Tax Treatment, TDS/TCS section, and accounting GL Account.
+They are also separate from Tax Type, numeric Tax Rate, Base GST Nature, transaction-level GST outcome, TDS/TCS section, and accounting GL Account.
 
 Services:
 
@@ -43,7 +43,7 @@ It answers “What kind of tax is this?” It does not store HSN/SAC, a percenta
 Keep the reference concepts distinct:
 
 - `tax_rates` stores reusable ordinary item/supply percentage-rate identities, currently primarily GST HSN/SAC rates.
-- `tax_treatments` stores tax nature such as TAXABLE, NIL_RATED, EXEMPT, or NON_GST; treatment is not a percentage.
+- `tax_treatments` stores controlled tax-nature references. For current Service Type/SKU catalogue use, the allowed Base GST Nature codes are TAXABLE, NIL_RATED, EXEMPT, and NON_GST; Base GST Nature is not a percentage or a final transaction outcome.
 - `tax_statutory_codes` stores statutory COMPONENT or SECTION identities.
 - `tax_statutory_code_rates` stores effective statutory SECTION/case rates, primarily TDS/TCS.
 
@@ -60,7 +60,7 @@ Therefore:
 HSN / SAC
 → Set of valid GST rates
 
-During catalogue setup:
+During catalogue setup for `TAXABLE` and `NIL_RATED` items:
 
 Service Type / SKU
 ↓
@@ -76,7 +76,7 @@ Company-configured HSN/SAC records map to controlled tax-rate references through
 
 For the same Company HSN/SAC and eligible GST Tax Rate, active effective periods cannot overlap. Historical relationships are date-ended/inactivated rather than overwritten or deleted.
 
-For the current catalogue default, `service_types.selected_tax_rate_id` and `skus.selected_tax_rate_id` store one selected eligible rate directly. The selection must belong to the item's Company HSN/SAC code through a currently valid mapping. No separate service/SKU tax-assignment table is required for MVP.
+For the current catalogue default, `service_types.selected_tax_rate_id` and `skus.selected_tax_rate_id` store one selected eligible rate directly when the Base GST Nature requires a rate. `TAXABLE` requires an active eligible GST rate. `NIL_RATED` requires an active eligible GST rate whose numeric value is exactly 0%. `EXEMPT` and `NON_GST` require the selected rate to be null; no artificial 0% rate is created for them. A 0% rate alone never infers `NIL_RATED`. No separate service/SKU tax-assignment table is required for MVP.
 
 ---
 
@@ -94,7 +94,7 @@ Configured HSN / SAC
 +
 selected eligible GST rate
 +
-Tax Treatment
+Base GST Nature
 +
 seller GST context
 +
@@ -200,16 +200,25 @@ Historical LUT records must be preserved.
 
 ---
 
-# GST / Tax Treatment
+# Catalogue Base GST Nature
 
-The current treatment values are:
+The current Base GST Nature values allowed for Service Type and SKU catalogue configuration are:
 
 - TAXABLE
 - NIL_RATED
 - EXEMPT
 - NON_GST
 
-These values are maintained as controlled `tax_treatments` references. GST/Tax Treatment is a classification, not a numeric Tax Rate Type. Do not assume rate = 0 fully represents these statutory treatments. Do not add `ZERO_RATED` unless a later product decision explicitly requires it.
+These values are maintained as controlled `tax_treatments` references and stored on catalogue items through `base_tax_treatment_id`. No duplicate enum or Base GST Nature table is introduced. The shared treatment master may support other controlled contexts later, but catalogue assignment accepts only the four codes above under the active GST Tax Type and matching jurisdiction.
+
+Base GST Nature is an item master-data fact, not the complete or final GST treatment of a Billing transaction. Numeric rate and Base GST Nature remain separate facts:
+
+- `TAXABLE` requires an active eligible GST rate.
+- `NIL_RATED` requires an active eligible GST rate of exactly 0%; 0% alone does not infer `NIL_RATED`.
+- `EXEMPT` requires no selected GST rate.
+- `NON_GST` requires no selected GST rate.
+
+`ZERO_RATED` is not a fifth catalogue Base GST Nature and must not be added to the approved catalogue choices. A catalogue item may remain `TAXABLE` while a future Billing resolver derives a transaction-level zero-rated outcome from `EXPWOP`, `EXPWP`, `SEZWOP`, or `SEZWP` and the other transaction context. This decision does not rename or redesign the current Supply Type terminology.
 
 ---
 
@@ -219,21 +228,21 @@ Services:
 
 Service Type
 ↓
-Company-configured SAC resolves
+Company-configured SAC and Base GST Nature resolve
 ↓
-`company_hsn_sac_tax_rates` supplies only eligible effective GST rates
+when required, `company_hsn_sac_tax_rates` supplies only eligible effective GST rates
 ↓
-Applicable rate is selected/resolved and revalidated
+the selected rate is revalidated for the transaction date
 ↓
-Tax Treatment is applied
+Supply Type and transaction context determine the final GST outcome from the Base GST Nature
 ↓
 seller jurisdiction + Place of Supply determine CGST + SGST or IGST
 ↓
-final line snapshots SAC code/description as required, treatment, rate, components, and amounts
+final line snapshots SAC code/description as required, Base GST Nature, transaction-level zero-rated outcome where applicable, actual rate, components, and amounts
 
 Goods follow the same flow from SKU to Company-configured HSN.
 
-HSN/SAC never determines CGST versus SGST versus IGST by itself. Jurisdiction, Place of Supply, and seller GST context determine the component.
+The future Billing GST resolver will centrally derive the final GST outcome from catalogue facts and transaction context; it is not part of the current catalogue implementation. HSN/SAC and catalogue Base GST Nature do not determine the complete transaction result by themselves. HSN/SAC never determines CGST versus SGST versus IGST by itself. Jurisdiction, Place of Supply, and seller GST context determine the component.
 
 ---
 
@@ -323,13 +332,16 @@ Final invoice should preserve transaction-time tax facts such as:
 
 - HSN / SAC used
 - HSN / SAC description where required
-- selected GST rate
-- GST treatment/components
+- Base GST Nature
+- transaction-level zero-rated outcome where applicable
+- actual GST rate used
+- CGST/SGST/IGST components, rates, and amounts
 - taxable value
 - tax amount
 - Supply Type
 - Place of Supply
 - seller GSTIN
+- LUT reference/context where applicable
 - TCS details where applicable
 
 Later master changes must not alter historical invoices.

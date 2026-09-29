@@ -149,9 +149,9 @@ class ServiceType(Base):
             ondelete="NO ACTION",
         ),
         ForeignKeyConstraint(
-            ["tax_treatment_id"],
+            ["base_tax_treatment_id"],
             ["core.tax_treatments.id"],
-            name="fk_service_types_tax_treatment",
+            name="fk_service_types_base_tax_treatment",
             ondelete="NO ACTION",
         ),
         ForeignKeyConstraint(
@@ -192,10 +192,10 @@ class ServiceType(Base):
     company_hsn_sac_code_id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), nullable=False
     )
-    selected_tax_rate_id: Mapped[UUID] = mapped_column(
-        PostgreSQLUUID(as_uuid=True), nullable=False
+    selected_tax_rate_id: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), nullable=True
     )
-    tax_treatment_id: Mapped[UUID] = mapped_column(
+    base_tax_treatment_id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), nullable=False
     )
     tcs_check_required: Mapped[bool] = mapped_column(
@@ -405,9 +405,9 @@ class Sku(Base):
             ondelete="NO ACTION",
         ),
         ForeignKeyConstraint(
-            ["tax_treatment_id"],
+            ["base_tax_treatment_id"],
             ["core.tax_treatments.id"],
-            name="fk_skus_tax_treatment",
+            name="fk_skus_base_tax_treatment",
             ondelete="NO ACTION",
         ),
         ForeignKeyConstraint(
@@ -444,10 +444,10 @@ class Sku(Base):
     company_hsn_sac_code_id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), nullable=False
     )
-    selected_tax_rate_id: Mapped[UUID] = mapped_column(
-        PostgreSQLUUID(as_uuid=True), nullable=False
+    selected_tax_rate_id: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), nullable=True
     )
-    tax_treatment_id: Mapped[UUID] = mapped_column(
+    base_tax_treatment_id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), nullable=False
     )
     tcs_check_required: Mapped[bool] = mapped_column(

@@ -20,7 +20,7 @@ from tests.integration.company_configuration_migration_support import (
 
 REVISION = "0031_uom_and_bank_account_hardening"
 PREVIOUS_REVISION = "0030_company_legal_name_history"
-CURRENT_HEAD = "0032_company_location_codes"
+CURRENT_HEAD = "0033_catalogue_base_gst_nature"
 
 
 async def _safe_empty(database_url: str) -> None:

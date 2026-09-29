@@ -222,7 +222,7 @@ async def _insert_service_type(
     return await _scalar(
         engine,
         "INSERT INTO ar.service_types ("
-        "  company_id, service_category_id, name, company_hsn_sac_code_id, selected_tax_rate_id, tax_treatment_id, status"
+        "  company_id, service_category_id, name, company_hsn_sac_code_id, selected_tax_rate_id, base_tax_treatment_id, status"
         ") VALUES (:c, :cat, :name, :sac, :tr, :tt, :st) RETURNING id",
         {
             "c": company_id,
@@ -276,7 +276,7 @@ async def _insert_sku(
     return await _scalar(
         engine,
         "INSERT INTO ar.skus ("
-        "  company_id, product_id, sku_code, name, uom, company_hsn_sac_code_id, selected_tax_rate_id, tax_treatment_id, status"
+        "  company_id, product_id, sku_code, name, uom, company_hsn_sac_code_id, selected_tax_rate_id, base_tax_treatment_id, status"
         ") VALUES (:c, :p, :code, 'SKU Item', 'NOS', :sac, :tr, :tt, :st) RETURNING id",
         {
             "c": company_id,

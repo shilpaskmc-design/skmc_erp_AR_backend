@@ -381,7 +381,7 @@ During Company Configuration, the Company identifies what it sells or provides:
 
 Services use the conceptual structure **Service Category → Service Type**. Service Type is the actual billable service.
 
-Possible Service Type information includes Service Name, optional internal code, Service Category, description, optional UOM, Company-configured SAC, current/default selected eligible GST rate, GST/Tax Treatment, TCS applicability-check requirement, and Active/Inactive status.
+Possible Service Type information includes Service Name, optional internal code, Service Category, description, optional UOM, Company-configured SAC, Base GST Nature, conditionally selected eligible GST rate, TCS applicability-check requirement, and Active/Inactive status.
 
 **Requirement — CONFIGURABLE**
 
@@ -393,7 +393,7 @@ Possible Service Type information includes Service Name, optional internal code,
 
 - A Tenant or Company's private custom service must not automatically become visible to another Tenant.
 - Historically used Service Types are deactivated rather than treated as if they never existed.
-- Service Type directly references a Company-configured SAC and one current/default selected eligible rate. The selected rate is stored on the Service Type and must be valid through the Company SAC-to-rate relationship; no separate service-tax assignment history is required for MVP.
+- Service Type directly references a Company-configured SAC and a controlled Base GST Nature through `base_tax_treatment_id`. Base GST Nature is an item fact, not the final transaction GST outcome. `TAXABLE` requires an active selected GST rate eligible through the Company SAC-to-rate relationship; `NIL_RATED` requires an eligible 0% rate; `EXEMPT` and `NON_GST` require no selected rate. No separate service-tax assignment history is required for MVP.
 - The Service Category and SAC must belong to the same Company as the Service Type.
 - `tcs_check_required` requires Billing to make/perform the applicable TCS decision; it does not automatically charge TCS.
 - Current catalogue create operations persist complete records as `ACTIVE`; `DRAFT` is not a catalogue lifecycle value. Historically used records are retained through `INACTIVE`.
@@ -416,7 +416,7 @@ The platform may offer canonical/suggested Service Categories and Service Types.
 
 Goods use the conceptual structure **Product Category → Product → SKU**. SKU is the actual sellable variation.
 
-SKU information may include SKU Code, Product, Company-configured HSN, current/default selected eligible GST rate, GST/Tax Treatment, UOM, description, TCS applicability-check requirement, and Active/Inactive status.
+SKU information may include SKU Code, Product, Company-configured HSN, Base GST Nature, conditionally selected eligible GST rate, UOM, description, TCS applicability-check requirement, and Active/Inactive status.
 
 **Requirement — CONFIGURABLE**
 
@@ -428,7 +428,7 @@ SKU information may include SKU Code, Product, Company-configured HSN, current/d
 
 - Customer-specific pricing belongs to Sales Order/commercial setup, not permanent Company Catalogue setup.
 - Historical transactions retain the relevant sold-item information even if catalogue data changes or becomes inactive.
-- SKU directly references a Company-configured HSN and one current/default selected eligible rate. The selected rate is stored on the SKU and must be valid through the Company HSN-to-rate relationship; no separate SKU-tax assignment history is required for MVP.
+- SKU directly references a Company-configured HSN and a controlled Base GST Nature through `base_tax_treatment_id`. Base GST Nature is an item fact, not the final transaction GST outcome. `TAXABLE` requires an active selected GST rate eligible through the Company HSN-to-rate relationship; `NIL_RATED` requires an eligible 0% rate; `EXEMPT` and `NON_GST` require no selected rate. No separate SKU-tax assignment history is required for MVP.
 - The Product and HSN must belong to the same Company as the SKU.
 - `tcs_check_required` requires Billing to make/perform the applicable TCS decision; it does not automatically levy TCS.
 - Current catalogue create operations persist complete records as `ACTIVE`; `DRAFT` is not a catalogue lifecycle value. Historically used records are retained through `INACTIVE`.
@@ -436,6 +436,8 @@ SKU information may include SKU Code, Product, Company-configured HSN, current/d
 - Product Category, Product, and SKU hierarchy is terminal/replacement based. An existing Product is never reassigned to a different Product Category, and an existing SKU is never reassigned to a different Product. Classification changes inactivate the old record and create a new record under the correct parent.
 - Product Category and Product support controlled terminal inactivation with no reactivation or hard-delete operation. Product Category inactivation is rejected while any active Product references it; Product inactivation is rejected while any active SKU references it. Inactive children remain readable and do not block later parent inactivation.
 - Inactive Product Categories, Products, and SKUs remain readable for history but cannot be edited or reassigned. Parent inactivation never moves or cascade-deletes children.
+
+Future Service Type/SKU Excel import terminology must use **Base GST Nature Code**, with allowed catalogue values `TAXABLE`, `NIL_RATED`, `EXEMPT`, and `NON_GST`. Selected GST Rate is conditional under the same validation matrix. `ZERO_RATED` is not an Excel catalogue nature. This wording does not expand the currently implemented Company Configuration import sheets.
 
 **Acceptance Criteria**
 
@@ -756,15 +758,15 @@ Company Configuration establishes reusable inputs required by Billing for HSN, S
 - The Company can maintain applicable Company HSN/SAC codes without receiving a full national catalogue.
 - Applicable Company HSN/SAC-to-GST-rate relationships can vary by effective date and restrict catalogue/Billing choices.
 - Ordinary reusable item/supply rates are separate from effective statutory SECTION/case rates. GST HSN/SAC eligibility uses ordinary Tax Rates; TDS/TCS section cases use Tax Statutory Code Rates and do not reference an ordinary Tax Rate merely because the percentage matches.
-- Controlled GST/Tax Treatment uses `TAXABLE`, `NIL_RATED`, `EXEMPT`, or `NON_GST`; it is not a numeric Tax Rate Type. Numeric `0%` does not imply one of these treatments.
+- Controlled catalogue Base GST Nature uses `TAXABLE`, `NIL_RATED`, `EXEMPT`, or `NON_GST`; it is not a numeric Tax Rate Type or the final transaction GST outcome. Numeric `0%` does not imply `NIL_RATED`, and `ZERO_RATED` is transaction context rather than a catalogue Base GST Nature.
 - Reusable TDS/TCS reference configuration may identify applicable sections/codes and rates without requiring advanced threshold or cumulative automation in Company Configuration.
 
 **Requirement — SYSTEM RULE**
 
-- Tax Type, Company HSN/SAC, numeric Tax Rate, Company HSN/SAC-to-rate eligibility, Tax Treatment, Tax Statutory Code (COMPONENT/SECTION), and Code Rate are distinct concepts.
+- Tax Type, Company HSN/SAC, numeric Tax Rate, Company HSN/SAC-to-rate eligibility, Base GST Nature, transaction-level GST outcome, Tax Statutory Code (COMPONENT/SECTION), and Code Rate are distinct concepts.
 - A Tax Statutory Code's code and name are required and nonblank. Its optional rate-case code represents the default logical case when absent and must be nonblank when supplied. These values are not automatically trimmed or case-normalized.
 - A Tax Statutory Code uses an exact two-character uppercase ASCII country code. This field is format-controlled and is not linked to the Country master in this persistence slice.
-- Selecting an item resolves its Company-configured SAC/HSN and eligible rate choices; Billing determines CGST + SGST or IGST from jurisdiction and snapshots the final line values.
+- Selecting an item resolves its Company-configured SAC/HSN, Base GST Nature, and conditionally selected eligible rate. Future Billing resolution also considers Supply Type, seller GST context, Place of Supply, transaction date, and LUT context to determine the final GST outcome and components, then snapshots the final line values.
 - TDS/TCS SECTION codes and their effective rates resolve through the Tax Statutory Code model, never through the GST HSN/SAC-to-rate mapping.
 - Statutory code rates are linked to their parent code identity only. SECTION codes are their primary current use, but persistence does not prohibit a COMPONENT-linked rate or duplicate the parent's kind on a rate row.
 - Active effective periods cannot overlap for the same HSN/SAC-rate relationship or for the same statutory code/logical case.

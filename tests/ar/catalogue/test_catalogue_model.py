@@ -46,6 +46,26 @@ def test_catalogue_uniqueness_and_defaults_match_contract() -> None:
     assert Sku.__table__.c.tcs_check_required.server_default.arg.text == "false"
     assert Sku.__table__.c.uom.nullable is False
     assert ServiceType.__table__.c.uom.nullable is True
+    assert ServiceType.__table__.c.selected_tax_rate_id.nullable is True
+    assert Sku.__table__.c.selected_tax_rate_id.nullable is True
+    assert ServiceType.__table__.c.base_tax_treatment_id.nullable is False
+    assert Sku.__table__.c.base_tax_treatment_id.nullable is False
+
+
+def test_catalogue_base_gst_nature_foreign_keys_match_contract() -> None:
+    expected = {
+        ServiceType: "fk_service_types_base_tax_treatment",
+        Sku: "fk_skus_base_tax_treatment",
+    }
+    for model, name in expected.items():
+        actual = {
+            constraint.name
+            for constraint in model.__table__.constraints
+            if isinstance(constraint, ForeignKeyConstraint)
+            and tuple(column.name for column in constraint.columns)
+            == ("base_tax_treatment_id",)
+        }
+        assert actual == {name}
 
 
 def test_catalogue_composite_foreign_keys_enforce_same_company_hierarchy() -> None:
