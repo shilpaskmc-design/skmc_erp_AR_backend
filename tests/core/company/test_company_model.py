@@ -1,8 +1,10 @@
 from sqlalchemy import CheckConstraint, ForeignKeyConstraint, UniqueConstraint
+from sqlalchemy.dialects.postgresql import ExcludeConstraint
 
 from skmc_erp.core.company.model import (
     Company,
     CompanyBusinessNature,
+    CompanyLegalNameVersion,
     CompanyStatus,
 )
 from skmc_erp.core.currency.model import Currency
@@ -121,7 +123,8 @@ def test_company_metadata_matches_approved_contract() -> None:
         if isinstance(constraint, UniqueConstraint)
     }
     assert unique_constraints == {
-        "uq_companies_company_code": ("company_code",)
+        "uq_companies_company_code": ("company_code",),
+        "uq_companies_tenant_id_id": ("tenant_id", "id"),
     }
 
     foreign_keys = {
@@ -170,4 +173,71 @@ def test_company_enums_contain_only_approved_values() -> None:
         "SERVICES",
         "GOODS",
         "BOTH",
+    }
+
+
+def test_company_legal_name_version_metadata_matches_approved_contract() -> None:
+    table = CompanyLegalNameVersion.__table__
+
+    assert table.schema == "core"
+    assert table.name == "company_legal_name_versions"
+    assert Base.metadata.tables["core.company_legal_name_versions"] is table
+    assert list(table.columns.keys()) == [
+        "id",
+        "company_id",
+        "legal_name",
+        "valid_from",
+        "valid_to",
+        "created_at",
+    ]
+    assert table.c.id.primary_key
+    assert str(table.c.id.server_default.arg) == "gen_random_uuid()"
+    assert not table.c.company_id.nullable
+    assert table.c.legal_name.type.length == 255
+    assert not table.c.legal_name.nullable
+    assert not table.c.valid_from.nullable
+    assert table.c.valid_to.nullable
+    assert table.c.created_at.type.timezone
+    assert str(table.c.created_at.server_default.arg) == "CURRENT_TIMESTAMP"
+
+    checks = {
+        constraint.name: str(constraint.sqltext)
+        for constraint in table.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+    assert checks == {
+        "ck_company_legal_name_versions_legal_name_not_blank": (
+            "btrim(legal_name) <> ''"
+        ),
+        "ck_company_legal_name_versions_date_order": (
+            "valid_to IS NULL OR valid_to >= valid_from"
+        ),
+    }
+    foreign_keys = {
+        constraint.name: (
+            tuple(element.parent.name for element in constraint.elements),
+            tuple(element.target_fullname for element in constraint.elements),
+            constraint.ondelete,
+        )
+        for constraint in table.constraints
+        if isinstance(constraint, ForeignKeyConstraint)
+    }
+    assert foreign_keys == {
+        "fk_company_legal_name_versions_company_id_companies": (
+            ("company_id",),
+            ("core.companies.id",),
+            "NO ACTION",
+        )
+    }
+    exclusions = {
+        constraint.name
+        for constraint in table.constraints
+        if isinstance(constraint, ExcludeConstraint)
+    }
+    assert exclusions == {
+        "ex_company_legal_name_versions_company_effective_range"
+    }
+    assert {index.name for index in table.indexes} == {
+        "ix_company_legal_name_versions_company_valid_from",
+        "uq_company_legal_name_versions_open_company",
     }

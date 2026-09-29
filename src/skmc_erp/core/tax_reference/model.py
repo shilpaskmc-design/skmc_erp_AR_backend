@@ -27,6 +27,11 @@ class TaxReferenceStatus(StrEnum):
     INACTIVE = "INACTIVE"
 
 
+class TaxStatutoryCodeKind(StrEnum):
+    COMPONENT = "COMPONENT"
+    SECTION = "SECTION"
+
+
 class HsnSacClassificationType(StrEnum):
     HSN = "HSN"
     SAC = "SAC"
@@ -354,6 +359,174 @@ class TaxTreatment(Base):
         PostgreSQLUUID(as_uuid=True), nullable=False
     )
     country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    status: Mapped[TaxReferenceStatus] = mapped_column(
+        Enum(
+            TaxReferenceStatus,
+            native_enum=False,
+            create_constraint=False,
+            validate_strings=True,
+            length=20,
+        ),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class TaxStatutoryCode(Base):
+    __tablename__ = "tax_statutory_codes"
+    __table_args__ = (
+        CheckConstraint(
+            "btrim(code) <> ''",
+            name="ck_tax_statutory_codes_code_not_blank",
+        ),
+        CheckConstraint(
+            "btrim(name) <> ''",
+            name="ck_tax_statutory_codes_name_not_blank",
+        ),
+        CheckConstraint(
+            "code_kind IN ('COMPONENT', 'SECTION')",
+            name="ck_tax_statutory_codes_code_kind",
+        ),
+        CheckConstraint(
+            "country_code ~ '^[A-Z]{2}$'",
+            name="ck_tax_statutory_codes_country_code_format",
+        ),
+        CheckConstraint(
+            "status IN ('ACTIVE', 'INACTIVE')",
+            name="ck_tax_statutory_codes_status",
+        ),
+        ForeignKeyConstraint(
+            ["tax_type_id"],
+            ["core.tax_types.id"],
+            name="fk_tax_statutory_codes_tax_type_id_tax_types",
+            ondelete="NO ACTION",
+        ),
+        PrimaryKeyConstraint("id", name="pk_tax_statutory_codes"),
+        UniqueConstraint(
+            "tax_type_id",
+            "country_code",
+            "code_kind",
+            "code",
+            name="uq_tax_statutory_codes_tax_type_country_kind_code",
+        ),
+        {"schema": "core"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    tax_type_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), nullable=False
+    )
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    code_kind: Mapped[TaxStatutoryCodeKind] = mapped_column(
+        Enum(
+            TaxStatutoryCodeKind,
+            native_enum=False,
+            create_constraint=False,
+            validate_strings=True,
+            length=20,
+        ),
+        nullable=False,
+    )
+    country_code: Mapped[str] = mapped_column(String(2), nullable=False)
+    status: Mapped[TaxReferenceStatus] = mapped_column(
+        Enum(
+            TaxReferenceStatus,
+            native_enum=False,
+            create_constraint=False,
+            validate_strings=True,
+            length=20,
+        ),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class TaxStatutoryCodeRate(Base):
+    __tablename__ = "tax_statutory_code_rates"
+    __table_args__ = (
+        CheckConstraint(
+            "case_code IS NULL OR btrim(case_code) <> ''",
+            name="ck_tax_statutory_code_rates_case_code_not_blank",
+        ),
+        CheckConstraint(
+            "rate_percent >= 0 AND rate_percent <= 100",
+            name="ck_tax_statutory_code_rates_rate_percent_range",
+        ),
+        CheckConstraint(
+            "valid_to IS NULL OR valid_to >= valid_from",
+            name="ck_tax_statutory_code_rates_date_order",
+        ),
+        CheckConstraint(
+            "status IN ('ACTIVE', 'INACTIVE')",
+            name="ck_tax_statutory_code_rates_status",
+        ),
+        ForeignKeyConstraint(
+            ["tax_statutory_code_id"],
+            ["core.tax_statutory_codes.id"],
+            name="fk_tax_statutory_code_rates_statutory_code",
+            ondelete="NO ACTION",
+        ),
+        PrimaryKeyConstraint("id", name="pk_tax_statutory_code_rates"),
+        ExcludeConstraint(
+            ("tax_statutory_code_id", "="),
+            ("case_code", "="),
+            (
+                text("daterange(valid_from, valid_to, '[]')"),
+                "&&",
+            ),
+            name="ex_tax_statutory_code_rates_active_named_overlap",
+            using="gist",
+            where=text("status = 'ACTIVE' AND case_code IS NOT NULL"),
+        ),
+        ExcludeConstraint(
+            ("tax_statutory_code_id", "="),
+            (
+                text("daterange(valid_from, valid_to, '[]')"),
+                "&&",
+            ),
+            name="ex_tax_statutory_code_rates_active_default_overlap",
+            using="gist",
+            where=text("status = 'ACTIVE' AND case_code IS NULL"),
+        ),
+        {"schema": "core"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    tax_statutory_code_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), nullable=False
+    )
+    case_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    rate_percent: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[TaxReferenceStatus] = mapped_column(
         Enum(
             TaxReferenceStatus,

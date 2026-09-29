@@ -102,7 +102,8 @@ def test_financial_year_metadata_matches_contract() -> None:
         "uq_financial_years_company_id_display_code": (
             "company_id",
             "display_code",
-        )
+        ),
+        "uq_financial_years_company_id_id": ("company_id", "id"),
     }
     exclusion_constraints = [
         constraint

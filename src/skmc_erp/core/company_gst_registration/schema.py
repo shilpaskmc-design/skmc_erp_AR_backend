@@ -79,3 +79,12 @@ class CompanyGSTRegistrationResponse(BaseModel):
     status: CompanyGSTRegistrationStatus
     created_at: datetime
     updated_at: datetime
+
+
+class CompanyGSTRegistrationUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    registered_legal_name: RegisteredLegalName | None = None
+    gst_registration_type_id: UUID | None = None
+    valid_from: date | None = None
+    valid_to: date | None = None

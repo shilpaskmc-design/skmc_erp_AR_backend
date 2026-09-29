@@ -1,0 +1,1 @@
+"""AR accounting-configuration persistence."""

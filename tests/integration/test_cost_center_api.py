@@ -179,6 +179,49 @@ async def _post_master(
     )
 
 
+async def _get_company_path(
+    client: AsyncClient,
+    *,
+    tenant_id: UUID,
+    company_id: UUID,
+    path: str,
+):
+    return await client.get(
+        f"/companies/{company_id}/{path}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+
+
+async def _patch_company_path(
+    client: AsyncClient,
+    *,
+    tenant_id: UUID,
+    company_id: UUID,
+    path: str,
+    payload: dict[str, object],
+):
+    return await client.patch(
+        f"/companies/{company_id}/{path}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json=payload,
+    )
+
+
+async def _put_company_path(
+    client: AsyncClient,
+    *,
+    tenant_id: UUID,
+    company_id: UUID,
+    path: str,
+    payload: dict[str, object],
+):
+    return await client.put(
+        f"/companies/{company_id}/{path}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json=payload,
+    )
+
+
 async def test_settings_and_master_creation(
     api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
 ) -> None:
@@ -233,6 +276,14 @@ async def test_settings_and_master_creation(
     )
     assert disabled.status_code == 200
     assert invalid_disabled.status_code == 422
+    settings_read = await _get_company_path(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="cost-center-settings",
+    )
+    assert settings_read.status_code == 200
+    assert settings_read.json()["cost_center_reporting_enabled"] is False
 
     cases = (
         ("business-segments", {"name": "Advisory", "code": "ADV"}),
@@ -246,6 +297,7 @@ async def test_settings_and_master_creation(
             {"name": "Noida Operations", "code": "NOIDA"},
         ),
     )
+    created_rows: dict[str, dict[str, object]] = {}
     for path, payload in cases:
         created = await _post_master(
             client,
@@ -264,6 +316,160 @@ async def test_settings_and_master_creation(
         assert created.status_code == 201
         assert created.json()["status"] == "ACTIVE"
         assert duplicate.status_code == 409
+        created_rows[path] = created.json()
+
+    for path in (
+        "business-segments",
+        "cost-center-teams",
+        "location-cost-centers",
+    ):
+        row_id = created_rows[path]["id"]
+        listed = await _get_company_path(
+            client,
+            tenant_id=tenant_id,
+            company_id=company_id,
+            path=path,
+        )
+        fetched = await _get_company_path(
+            client,
+            tenant_id=tenant_id,
+            company_id=company_id,
+            path=f"{path}/{row_id}",
+        )
+        updated = await _patch_company_path(
+            client,
+            tenant_id=tenant_id,
+            company_id=company_id,
+            path=f"{path}/{row_id}",
+            payload={"name": f"Updated {path}"},
+        )
+        immutable_code = await _patch_company_path(
+            client,
+            tenant_id=tenant_id,
+            company_id=company_id,
+            path=f"{path}/{row_id}",
+            payload={"code": "CHANGED"},
+        )
+        assert listed.status_code == 200
+        assert [row["id"] for row in listed.json()] == [row_id]
+        assert fetched.status_code == 200
+        assert fetched.json()["id"] == row_id
+        assert updated.status_code == 200
+        assert updated.json()["name"] == f"Updated {path}"
+        assert immutable_code.status_code == 422
+
+    team_id = created_rows["teams"]["id"]
+    first_bucket_id = created_rows["cost-center-teams"]["id"]
+    second_bucket = await _post_master(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="cost-center-teams",
+        payload={"name": "Commercial Operations", "code": "COMOPS"},
+    )
+    assert second_bucket.status_code == 201
+    for target_id in (first_bucket_id, second_bucket.json()["id"], None):
+        assigned = await _put_company_path(
+            client,
+            tenant_id=tenant_id,
+            company_id=company_id,
+            path=f"teams/{team_id}/cost-center-team",
+            payload={"cost_center_team_id": target_id},
+        )
+        assert assigned.status_code == 200
+        assert assigned.json()["cost_center_team_id"] == target_id
+
+    other_company_id = await _insert_company(engine, tenant_id=tenant_id)
+    other_bucket = await _post_master(
+        client,
+        tenant_id=tenant_id,
+        company_id=other_company_id,
+        path="cost-center-teams",
+        payload={"name": "Other Company Bucket"},
+    )
+    concealed_bucket = await _get_company_path(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path=f"cost-center-teams/{other_bucket.json()['id']}",
+    )
+    cross_company_assignment = await _put_company_path(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path=f"teams/{team_id}/cost-center-team",
+        payload={"cost_center_team_id": other_bucket.json()["id"]},
+    )
+    assert concealed_bucket.status_code == 404
+    assert cross_company_assignment.status_code == 422
+
+    assigned_before_inactivation = await _put_company_path(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path=f"teams/{team_id}/cost-center-team",
+        payload={"cost_center_team_id": first_bucket_id},
+    )
+    bucket_inactivated = await client.post(
+        f"/companies/{company_id}/cost-center-teams/"
+        f"{first_bucket_id}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    inactive_target = await _put_company_path(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path=f"teams/{team_id}/cost-center-team",
+        payload={"cost_center_team_id": first_bucket_id},
+    )
+    inactive_bucket_update = await _patch_company_path(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path=f"cost-center-teams/{first_bucket_id}",
+        payload={"name": "Forbidden"},
+    )
+    team_inactivated = await client.post(
+        f"/companies/{company_id}/teams/{team_id}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    inactive_team_assignment = await _put_company_path(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path=f"teams/{team_id}/cost-center-team",
+        payload={"cost_center_team_id": second_bucket.json()["id"]},
+    )
+    assert assigned_before_inactivation.status_code == 200
+    assert bucket_inactivated.status_code == 200
+    assert bucket_inactivated.json()["status"] == "INACTIVE"
+    assert inactive_target.status_code == 409
+    assert inactive_bucket_update.status_code == 409
+    assert team_inactivated.status_code == 200
+    assert team_inactivated.json()["status"] == "INACTIVE"
+    assert inactive_team_assignment.status_code == 409
+    assert await _scalar(
+        engine,
+        "SELECT cost_center_team_id FROM core.teams WHERE id = :id",
+        {"id": UUID(team_id)},
+    ) == UUID(first_bucket_id)
+
+    for path in ("business-segments", "location-cost-centers"):
+        row_id = created_rows[path]["id"]
+        inactivated = await client.post(
+            f"/companies/{company_id}/{path}/{row_id}/inactivate",
+            headers={"X-Tenant-ID": str(tenant_id)},
+        )
+        mutation = await _patch_company_path(
+            client,
+            tenant_id=tenant_id,
+            company_id=company_id,
+            path=f"{path}/{row_id}",
+            payload={"name": "Forbidden"},
+        )
+        assert inactivated.status_code == 200
+        assert inactivated.json()["status"] == "INACTIVE"
+        assert mutation.status_code == 409
 
     assert await _scalar(
         engine, "SELECT count(*) FROM core.company_cost_center_settings"
@@ -316,3 +522,18 @@ async def test_tenant_concealment_inactive_company_and_system_fields(
     assert hidden.json() == {"detail": "Company not found"}
     assert inactive.status_code == 409
     assert injected_assignment.status_code == 422
+
+    hidden_list = await _get_company_path(
+        client,
+        tenant_id=tenant_id,
+        company_id=hidden_company_id,
+        path="business-segments",
+    )
+    hidden_settings = await _get_company_path(
+        client,
+        tenant_id=tenant_id,
+        company_id=hidden_company_id,
+        path="cost-center-settings",
+    )
+    assert hidden_list.status_code == 404
+    assert hidden_settings.status_code == 404

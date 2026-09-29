@@ -1,8 +1,8 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints, model_validator
 
 from skmc_erp.ar.catalogue.model import CatalogueStatus
 
@@ -46,6 +46,18 @@ class ServiceCategoryResponse(BaseModel):
     updated_at: datetime
 
 
+class ServiceCategoryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: CategoryName | None = None
+
+    @model_validator(mode="after")
+    def reject_null_name(self) -> Self:
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name cannot be null")
+        return self
+
+
 class ServiceTypeCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -66,6 +78,7 @@ class ServiceTypeResponse(BaseModel):
     id: UUID
     company_id: UUID
     service_category_id: UUID
+    business_segment_id: UUID | None
     name: str
     code: str | None
     description: str | None
@@ -77,6 +90,40 @@ class ServiceTypeResponse(BaseModel):
     status: CatalogueStatus
     created_at: datetime
     updated_at: datetime
+
+
+class ServiceTypeUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: ItemName | None = None
+    description: OptionalDescription | None = None
+    uom: Uom | None = None
+    company_hsn_sac_code_id: UUID | None = None
+    selected_tax_rate_id: UUID | None = None
+    tax_treatment_id: UUID | None = None
+    tcs_check_required: bool | None = None
+
+    @model_validator(mode="after")
+    def reject_null_required_fields(self) -> Self:
+        for field_name in (
+            "name",
+            "company_hsn_sac_code_id",
+            "selected_tax_rate_id",
+            "tax_treatment_id",
+            "tcs_check_required",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(f"{field_name} cannot be null")
+        return self
+
+
+class BusinessSegmentAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    business_segment_id: UUID | None
 
 
 class ProductCategoryCreate(BaseModel):
@@ -96,6 +143,18 @@ class ProductCategoryResponse(BaseModel):
     status: CatalogueStatus
     created_at: datetime
     updated_at: datetime
+
+
+class ProductCategoryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: CategoryName | None = None
+
+    @model_validator(mode="after")
+    def reject_null_name(self) -> Self:
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name cannot be null")
+        return self
 
 
 class ProductCreate(BaseModel):
@@ -121,6 +180,19 @@ class ProductResponse(BaseModel):
     updated_at: datetime
 
 
+class ProductUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: ItemName | None = None
+    description: OptionalDescription | None = None
+
+    @model_validator(mode="after")
+    def reject_null_name(self) -> Self:
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name cannot be null")
+        return self
+
+
 class SkuCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -141,6 +213,7 @@ class SkuResponse(BaseModel):
     id: UUID
     company_id: UUID
     product_id: UUID
+    business_segment_id: UUID | None
     sku_code: str
     name: str
     description: str | None
@@ -152,3 +225,32 @@ class SkuResponse(BaseModel):
     status: CatalogueStatus
     created_at: datetime
     updated_at: datetime
+
+
+class SkuUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: ItemName | None = None
+    description: OptionalDescription | None = None
+    uom: Uom | None = None
+    company_hsn_sac_code_id: UUID | None = None
+    selected_tax_rate_id: UUID | None = None
+    tax_treatment_id: UUID | None = None
+    tcs_check_required: bool | None = None
+
+    @model_validator(mode="after")
+    def reject_null_required_fields(self) -> Self:
+        for field_name in (
+            "name",
+            "uom",
+            "company_hsn_sac_code_id",
+            "selected_tax_rate_id",
+            "tax_treatment_id",
+            "tcs_check_required",
+        ):
+            if (
+                field_name in self.model_fields_set
+                and getattr(self, field_name) is None
+            ):
+                raise ValueError(f"{field_name} cannot be null")
+        return self

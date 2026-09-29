@@ -154,6 +154,12 @@ class ServiceType(Base):
             name="fk_service_types_tax_treatment",
             ondelete="NO ACTION",
         ),
+        ForeignKeyConstraint(
+            ["uom"],
+            ["core.uoms.code"],
+            name="fk_service_types_uom_uoms",
+            ondelete="NO ACTION",
+        ),
         PrimaryKeyConstraint("id", name="pk_service_types"),
         Index(
             "uq_service_types_company_id_code",
@@ -402,6 +408,12 @@ class Sku(Base):
             ["tax_treatment_id"],
             ["core.tax_treatments.id"],
             name="fk_skus_tax_treatment",
+            ondelete="NO ACTION",
+        ),
+        ForeignKeyConstraint(
+            ["uom"],
+            ["core.uoms.code"],
+            name="fk_skus_uom_uoms",
             ondelete="NO ACTION",
         ),
         PrimaryKeyConstraint("id", name="pk_skus"),

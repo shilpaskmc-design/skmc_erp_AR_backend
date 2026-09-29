@@ -114,8 +114,10 @@ Company administrators can maintain the identity and contact information of the 
 - The system and UI consume the same platform-managed applicability rules. Normal Company users enter identifier values but cannot create Identifier Types or change applicability rules.
 - The complete statutory applicability matrix and identifier-specific format/normalization rules remain OPEN; illustrative PAN/CIN/LLPIN examples are not the full authoritative India matrix.
 - Platform reference-data administration may add supported foreign-jurisdiction legal forms later without changing the Company schema.
-- Company legal name is the current Company-level legal name. Legal-name history must remain recoverable through separate Company profile history; current-row timestamps and generic Audit are not substitutes for effective profile versioning.
+- Company legal name is the current Company-level projection. Dedicated effective-dated legal-name history preserves each prior value for the stable Company identity; current-row timestamps and generic Audit are not substitutes for this version history.
+- Authorized Company maintenance may change the current legal name without replacing the stable Company identity. Normal MVP changes take effect immediately, close the prior inclusive date range on the preceding day, and create a new current version atomically with the current projection. A second transition on the same effective date is rejected rather than overwriting history. Future-dated scheduling is outside MVP.
 - Making a Company inactive must not remove or hide its historical transactions.
+- The current controlled inactivation transition is `ACTIVE` to `INACTIVE`. Inactive is terminal for the current MVP: there is no reactivation or generic status-edit operation, and the inactive Company profile is read-only through ordinary maintenance.
 
 **Acceptance Criteria**
 
@@ -144,6 +146,8 @@ Entity Type describes what legal form the Company is. Identifier Type describes 
 
 A Company can maintain multiple stable physical/business Locations, such as a Noida Registered Office, Mumbai Branch, or Bangalore Warehouse. A Location stores its current usable address and configuration and belongs directly to the Company; Organisation grouping is unrelated to Location configuration.
 
+Each Location has two distinct business-facing identifiers. `location_code` is the immutable Company-scoped stable reference used for Excel re-import, integrations, and rename-safe identification. `location_name` is the mutable human-friendly display and search name; duplicate Location Names are permitted. The internal UUID remains the relational identity and is not replaced by Location Code.
+
 One Company Location represents one physical/business place. The same Location may serve more than one applicable fixed purpose. For example:
 
 ```text
@@ -158,6 +162,8 @@ This is one Location with several purposes, not three duplicate Location records
 **Requirement — SYSTEM RULE**
 
 - At most one active Registered Office exists per Company at all times.
+- Location Code is unique within its Company, is immutable after creation, and is retained after inactivation. A retired code is not reassigned to another Location.
+- User-supplied Location Codes are trimmed and uppercased and must contain 1-50 uppercase letters, digits, underscores, or hyphens, beginning with a letter or digit. When omitted at creation, the backend allocates the next concurrency-safe Company sequence value using `LOC-0001`, `LOC-0002`, and so on. Codes are never derived from Location Name.
 - Exactly one active Registered Office is required when Company setup is completed/usable; an incomplete draft may temporarily have none.
 - One Company Location may carry more than one applicable fixed purpose.
 - Non-Registered-Office purposes may repeat across different Locations where applicable; they are not implicitly unique per Company.
@@ -172,18 +178,23 @@ This is one Location with several purposes, not three duplicate Location records
 - A Location may optionally belong to one Location Cost Center. The Location and Cost Center must belong to the same Company, and a Location does not automatically become a Cost Center.
 - A historically used location is deactivated rather than deleted.
 - Location address and jurisdiction history is effective-dated for the same stable Location. The version history is deliberately narrow: it does not imply historical GST Registration, Cost Center, purpose, name, default, or status mapping.
+- Creating a Location creates its first address version from the current business date. A real address/jurisdiction change closes the current version on the preceding date and creates one immediately effective open version; no-op and non-address changes do not create versions. Future-dated scheduling and backdated correction workflows are outside the MVP.
+- Location lifecycle is terminal `ACTIVE` -> `INACTIVE`. An inactive Location cannot be reactivated or mutated, including address, GST Registration, or Location Cost Center changes; a later operational need creates a new Location.
 - Changing a current Location or address must not rewrite historical financial documents. Finalized documents retain their own transaction-time address snapshots rather than being reconstructed from current or versioned Location masters.
 - Company Location represents a legal/business location, not a logged-in user's physical work location.
 
 **Acceptance Criteria**
 
 - A Company can maintain more than one location.
+- A Location retains the same Company-scoped Location Code across name, address, purpose, and lifecycle changes.
+- Import can match a Location by its code without exposing or replacing its UUID.
 - One physical Location can be assigned several applicable fixed purposes without duplicating its address into separate Location records.
 - More than one Location can carry the same non-Registered-Office purpose where applicable.
 - The system prevents a Company from having zero or more than one active Registered Office once the applicable setup is active.
 - A location can be saved without a GST registration.
 - A location can omit Subdivision where the address does not require one, but any supplied Subdivision must belong to the selected Country.
 - Historically referenced locations cannot be hard-deleted through normal configuration.
+- Inactive Locations remain historically readable but cannot be reactivated, edited, or reassigned.
 - The system prevents more than one active default Location for the same GST Registration.
 - A mapped Location's state/jurisdiction must be compatible with its GST Registration.
 - The system can resolve the address/jurisdiction effective for a Location on a date without treating Location versions as full configuration history.
@@ -211,6 +222,18 @@ The Company legal name and GST-registration legal name are distinct current fact
 - The MVP does not support multiple active GST registrations for the same Company in the same state. This is an MVP product constraint, not a general legal claim.
 - GSTIN-wise Bank Account routing is not required in the MVP.
 - Company profile history and GST Registration history are preserved separately. Finalized invoices retain the seller legal name, GSTIN, address, and registration context actually used at finalization rather than rebuilding them from current masters.
+
+**Excel Import — APPROVED**
+
+- `GST Registrations` is an onboarding/create-or-compare sheet keyed by normalized GSTIN. A normalized GSTIN may appear only once in that sheet.
+- Import never edits an existing GST Registration: equivalent data is `UNCHANGED`, while any difference is `CONFLICT` and must be maintained through the normal GST Registration flow.
+- Registered Legal Name remains optional for a new imported registration and is independent from Company Legal Name; import does not copy or derive it.
+- New imported registrations use the existing service lifecycle and therefore start `DRAFT`; Status is not importable.
+- `GST Location Mappings` is a separate normalized sheet keyed by GSTIN plus Company-scoped Location Code. It writes the existing nullable Location-to-GST association and does not introduce a bridge table.
+- Mapping is additive-only. An exact existing association is unchanged; an unassigned active Location may be assigned; omission never unmaps; and a Location already assigned to another GSTIN is a conflict rather than a reassignment.
+- `DRAFT` and `ACTIVE` GST Registrations may receive new Location assignments. An `INACTIVE` GST Registration cannot receive a new or changed Location assignment, but an association already present when it becomes inactive is not automatically removed.
+- Location purpose flags do not determine GST eligibility. Company ownership and matching Subdivision remain mandatory.
+- A new Location referenced by another sheet in the same workbook must have an explicitly supplied Location Code. Import never predicts a generated `LOC-xxxx` value or uses Location Name as mapping identity.
 
 **Acceptance Criteria**
 
@@ -308,6 +331,9 @@ Numbering may vary by Company, fiscal period, seller GST registration, and paral
 - Current eligible-series behavior remains: one eligible series is auto-selected, multiple eligible series require user selection, and no eligible series blocks finalization.
 - Eligibility conditions use a controlled condition model rather than executable rules. Exact operator vocabulary, multiple-condition AND/OR behavior and current priority semantics remain OPEN.
 - At year-end, the system can propose the next series/prefix/format for authorized confirmation or change.
+- Configuration persistence stores Company/FY/document-type series identity, format, independent counter, lifecycle, and controlled condition rows. Runtime allocation remains part of later Billing finalization.
+- The exact first-release condition-type vocabulary, operator vocabulary, multi-condition combination, and priority semantics remain OPEN; no condition-write API may guess them.
+- Condition selection, operator/combination semantics, matching priority, conflict resolution, and concurrency-safe final-number allocation belong to later Billing/finalization implementation rather than Company Configuration maintenance.
 
 **Acceptance Criteria**
 
@@ -372,6 +398,8 @@ Possible Service Type information includes Service Name, optional internal code,
 - `tcs_check_required` requires Billing to make/perform the applicable TCS decision; it does not automatically charge TCS.
 - Current catalogue create operations persist complete records as `ACTIVE`; `DRAFT` is not a catalogue lifecycle value. Historically used records are retained through `INACTIVE`.
 - A Service Type may reference zero or one same-Company Business Segment through its nullable direct relationship. Assignment and reassignment API behavior remains outside the current catalogue create API.
+- A Service Type does not move to another Service Category. Restructuring inactivates the old Service Type and creates the appropriate replacement.
+- A Service Category may be inactivated only after all of its Service Types are inactive. Inactivation never cascades, moves, or deletes child Service Types, and neither Service Category nor Service Type is reactivated in the current MVP.
 
 The platform may offer canonical/suggested Service Categories and Service Types. Exact ownership between platform definitions, Company adoption, and Company-specific configuration is **Boundary TBD** for domain modelling.
 
@@ -405,6 +433,9 @@ SKU information may include SKU Code, Product, Company-configured HSN, current/d
 - `tcs_check_required` requires Billing to make/perform the applicable TCS decision; it does not automatically levy TCS.
 - Current catalogue create operations persist complete records as `ACTIVE`; `DRAFT` is not a catalogue lifecycle value. Historically used records are retained through `INACTIVE`.
 - An SKU may reference zero or one same-Company Business Segment through its nullable direct relationship. Assignment and reassignment API behavior remains outside the current catalogue create API.
+- Product Category, Product, and SKU hierarchy is terminal/replacement based. An existing Product is never reassigned to a different Product Category, and an existing SKU is never reassigned to a different Product. Classification changes inactivate the old record and create a new record under the correct parent.
+- Product Category and Product support controlled terminal inactivation with no reactivation or hard-delete operation. Product Category inactivation is rejected while any active Product references it; Product inactivation is rejected while any active SKU references it. Inactive children remain readable and do not block later parent inactivation.
+- Inactive Product Categories, Products, and SKUs remain readable for history but cannot be edited or reassigned. Parent inactivation never moves or cascade-deletes children.
 
 **Acceptance Criteria**
 
@@ -427,6 +458,7 @@ A Company configures the HSN/SAC codes relevant to its business. The MVP does no
 - GST, TDS, and TCS applicability/rules remain conceptually separate from HSN/SAC. TDS/TCS stay section-based and do not use the GST HSN/SAC-rate mapping.
 - The same classification may receive different tax treatment by effective date or transaction context.
 - Historical approved financial documents preserve the classification and tax treatment actually used.
+- When a Company HSN/SAC classification is no longer valid for new use, it is inactivated and a replacement classification is created. Inactive classifications remain readable for history, cannot be edited or reactivated, and are never hard-deleted through Company Configuration.
 
 Platform suggestions may assist entry, but each selected classification used by the catalogue is Company-configured. Detailed transaction applicability and calculation belong to Billing/Tax specifications.
 
@@ -460,6 +492,8 @@ Business Segment, Team, and Location are independent reporting choices. Business
 The current Cost Center configuration is dynamic across the supported Business Segment, Team and Location bases. It is not a generic user-defined accounting-dimension engine.
 
 The bases remain separate business entities because their behavior differs: Business Segments relate directly to Service Types and SKUs, Cost Center Team reporting buckets group actual Company Teams, actual Teams have effective-dated user membership history, and Location Cost Centers group physical Company Locations. No generic `cost_centers`, `cost_center_types`, polymorphic mapping, arbitrary dimension-value, or JSON-driven dimension model is introduced.
+
+Business Segment, Cost Center Team, actual Team, and Location Cost Center use terminal `ACTIVE` to `INACTIVE` lifecycle for the current MVP. Inactivation does not delete or automatically remap current references; administrators create replacement masters and explicitly remap current records. Inactive masters remain readable but cannot be edited, reassigned, or selected as new assignment targets. Optional Cost Center master codes are stable Company business-reference/import keys and are not edited in place.
 
 ### 15.1 Business Segment
 
@@ -728,9 +762,12 @@ Company Configuration establishes reusable inputs required by Billing for HSN, S
 **Requirement — SYSTEM RULE**
 
 - Tax Type, Company HSN/SAC, numeric Tax Rate, Company HSN/SAC-to-rate eligibility, Tax Treatment, Tax Statutory Code (COMPONENT/SECTION), and Code Rate are distinct concepts.
+- A Tax Statutory Code's code and name are required and nonblank. Its optional rate-case code represents the default logical case when absent and must be nonblank when supplied. These values are not automatically trimmed or case-normalized.
+- A Tax Statutory Code uses an exact two-character uppercase ASCII country code. This field is format-controlled and is not linked to the Country master in this persistence slice.
 - Selecting an item resolves its Company-configured SAC/HSN and eligible rate choices; Billing determines CGST + SGST or IGST from jurisdiction and snapshots the final line values.
 - TDS/TCS SECTION codes and their effective rates resolve through the Tax Statutory Code model, never through the GST HSN/SAC-to-rate mapping.
-- Active effective periods cannot overlap for the same HSN/SAC-rate relationship or for the same statutory SECTION/logical case.
+- Statutory code rates are linked to their parent code identity only. SECTION codes are their primary current use, but persistence does not prohibit a COMPONENT-linked rate or duplicate the parent's kind on a rate row.
+- Active effective periods cannot overlap for the same HSN/SAC-rate relationship or for the same statutory code/logical case.
 - Approved financial documents preserve the actual tax treatment used.
 - Company Configuration supplies reusable inputs; final transaction applicability and calculation belong to Billing/Tax specifications.
 
@@ -889,21 +926,30 @@ contract.
 
 ### D. Revenue GL Mapping
 
-One effective-dated mapping row contains:
+Revenue GL determination is item-based. Each effective-dated Revenue GL Mapping represents:
 
-- Supply Type — B2B, B2C, EXPWOP, EXPWP, SEZWOP, or SEZWP
-- optional Company HSN/SAC
-- Company GL Account
-- Valid From / Valid To
-- Status
+- Company
+- Item identity: **Service Type OR SKU** (exactly one of `service_type_id` or `sku_id`, never both, never neither)
+- Optional Supply Type (`supply_type_code`: B2B, B2C, EXPWOP, EXPWP, SEZWOP, SEZWP; NULL acts as wildcard/fallback)
+- Optional Company Location (`company_location_id`: references stable Company Location ID, not location address version ID; NULL acts as wildcard/fallback)
+- Revenue GL Account (`gl_account_id`: must be ACTIVE for creation of a new mapping)
+- Effective dates (`valid_from` / `valid_to`) and lifecycle (`status`: ACTIVE / INACTIVE)
 
-Resolution order:
+**HSN/SAC is NOT a Revenue GL criterion.** HSN/SAC does not participate in Revenue GL determination.
 
-1. Effective Supply Type + matching HSN/SAC.
-2. Effective Supply-Type-only mapping.
-3. If neither exists, block finalization rather than guess.
+**Fixed Specificity Precedence (Deterministic Resolution):**
+There is no user-configurable priority column or arbitrary ordering. Revenue GL resolution evaluates active mappings for `effective_on` using this fixed precedence:
 
-Overlapping periods for the same business condition are rejected. Account names remain Company-defined.
+1. `Item + Supply Type + Location`
+2. `Item + Supply Type`
+3. `Item + Location`
+4. `Item only`
+
+Where `Item` means Service Type OR SKU. `Item + Supply Type` has higher specificity than `Item + Location`.
+Service Type rules never match SKU requests and SKU rules never match Service Type requests (no cross-item fallback).
+Overlapping effective periods for the same exact criteria tuple are prohibited at the database level via GIST exclusion constraints.
+If multiple mappings match at the highest specificity level, an ambiguity error (`RevenueGlMappingAmbiguityError`) is raised. If no mapping matches, a controlled "no mapping configured" result/error is returned.
+Mappings are preserved historically; ending a mapping sets `valid_to` and `status = INACTIVE` without hard deletion or rewriting historical criteria.
 
 ### E. Tax / Statutory GL Mapping
 
@@ -1030,7 +1076,9 @@ Future Company self-service import/export should support Account Groups, GL Acco
 
 **Requirement — CONFIGURABLE**
 
-A Company can configure reusable presentation for PI, TI, DN, and CN. Reusable assets may include Company Logo, Signature, and Stamp. Presentation may control the header, Bill-To/Ship-To, item table, tax section, bank details, terms, signature, and footer.
+A Company selects one current billing-document template/design in Company Configuration. The same selection is used for PI, TI, CN, and DN until an administrator changes it; document creation does not ask the user to choose a template. MVP template identities such as `STANDARD_V1`, `MODERN_V1`, and `COMPACT_V1` are approved renderer/layout definitions owned by application code rather than user-authored HTML, CSS, JavaScript, layout JSON, or executable renderer code.
+
+Company-specific branding remains separate from the selected layout. Reusable branding may include Company Logo, Signature, Stamp, header text, and footer text.
 
 **Requirement — SYSTEM RULE**
 
@@ -1038,19 +1086,24 @@ Historical financial documents must remain reproducible and must not change unex
 
 Logo, Signature, and Stamp binaries use shared object storage and stable `stored_files` identities. Company branding configuration later references those identities through typed FKs; it does not store binary content, arbitrary file paths, or temporary/signed URLs. Server-side template identity remains separate from a generated output PDF artifact.
 
-Branding uses typed `logo_file_id`, `signature_file_id`, and `stamp_file_id` references to same-Company `stored_files` rows. Once branding is used by a published template version, a replacement asset or text configuration creates a new branding row for a new template version rather than changing historical output.
+Branding uses typed `logo_file_id`, `signature_file_id`, and `stamp_file_id` references to same-Company `stored_files` rows. Replacing an asset or text configuration creates a new immutable branding row rather than overwriting the prior row. When a current template selection exists, the branding change also creates a new template-selection version that retains the same `template_key` and references the new branding row.
 
-Document templates are versioned Company/document-type configuration over supported server-side `template_key` values. Display choices are explicitly selected during setup and have no assumed boolean defaults; mandatory legal/statutory information remains visible regardless of an optional presentation preference. Whether each Company/document type has exactly one current active template or multiple active choices remains OPEN. Branding may include a Stamp asset, but whether Stamp visibility needs an independent `show_stamp` toggle or is governed by the selected server-side template also remains OPEN. Final PDFs remain immutable stored artifacts outside the branding/template configuration tables.
+Template selections are immutable Company-wide configuration versions over the supported code-owned `template_key` registry. At most one selection and at most one branding row are current/`ACTIVE` for a Company. Changing either configuration retires the prior current row and preserves history. PI/TI/CN/DN do not participate in selection cardinality, and no per-document-type or per-document template choice is part of MVP. A Company may initially have no explicit selection or branding; no persisted default is invented.
+
+The selected code-owned template controls MVP presentation. Existing physical `show_*` fields are legacy/non-governing and are not exposed as Company-configurable MVP options; no `show_stamp` option is added. Final PDFs, finalized-document configuration snapshots, object-storage upload/runtime integration, and renderer execution remain outside this configuration batch.
 
 **Requirement — DEFERRED**
 
-A full drag-and-drop template builder is not part of the MVP. Basic Company/document-type template version identity is part of the current configuration design; advanced template-builder customization, richer version-management workflow, and deeper customization remain deferred to later design.
+A full drag-and-drop template builder and per-Company field visibility, logo placement/size, font, and section-position controls are not part of MVP. PDF rendering, object-storage upload integration, and finalized-document snapshots remain later runtime work.
 
 **Acceptance Criteria**
 
-- An administrator can configure reusable presentation/assets for the current four document types.
-- Current setting changes apply according to later document-generation rules without mutating historical approved output.
-- MVP setup does not require a generic drag-and-drop builder.
+- An administrator can choose one current Company billing template used by PI, TI, CN, and DN without choosing again on each document.
+- Unsupported template keys cannot be persisted through the configuration API.
+- Template and branding changes create new rows, retire the prior current rows, and retain deterministic history.
+- Branding file references must exist and belong to the same Company.
+- Current setting changes apply to future documents without mutating historical selection or branding rows.
+- MVP exposes neither a generic template builder nor Company-configurable `show_*` presentation options.
 
 ## 22. Invoice Email Delivery Configuration
 
@@ -1212,6 +1265,23 @@ Audit storage design is outside this document.
 | DEFERRED | Full Accounting posting/reconciliation, starter CoA template engine, and inter-unit clearing rules | Keep approved account configuration/mapping while defining wider Accounting behavior separately. |
 | Extensible | Platform catalogues and Company adoption | Support suggestions plus Tenant-private custom content while ownership is finalized later. |
 
+### 28.1. Approved Validation Decisions (Batch 2)
+
+#### Unit of Measure (UOM)
+**Status:** APPROVED & IMPLEMENTED
+- UOM is a global/shared controlled master (`core.uoms`) serving both Goods and Services.
+- SKUs require a mandatory controlled UOM reference; Service Types may carry an optional controlled UOM reference.
+- Service Types and SKUs reference stable UOM codes (e.g. `NOS`, `KGS`, `MTR`, `HRS`, `DAY`, `SET`, `JOB`).
+- Arbitrary free-text UOM strings are prohibited after migration.
+
+#### Bank Account Validation
+**Status:** APPROVED & IMPLEMENTED
+- Explicit bank country context (`bank_country_code`) defines the bank jurisdiction independently of Company country.
+- India-specific IFSC structural validation (`^[A-Z]{4}0[A-Z0-9]{6}$`) is enforced optionally when `bank_country_code == 'IN'`.
+- Structural validation for optional SWIFT/BIC (`8` or `11` alphanumeric) and optional IBAN (ISO 7064 Modulo 97 checksum).
+- Controlled account types: `CURRENT`, `SAVINGS`, `OVERDRAFT`, `CASH_CREDIT`, `MONEY_MARKET`, `OTHER`.
+- Lightweight offline structural validation only; no live bank or network verification.
+
 ## 29. Open Company-Configuration Decisions
 
 Only the following unresolved decisions materially influence Company Configuration or its domain model:
@@ -1220,9 +1290,10 @@ Only the following unresolved decisions materially influence Company Configurati
 2. Are Team and other management-reporting references shared across modules, or owned by AR configuration in the MVP?
 3. What exact minimum identity, catalogue, numbering, currency, Bank Account, and tax setup blocks Company activation?
 4. What Company-level Receipt FX configuration is required, and how does its purpose differ from Billing and Reporting FX?
-5. What first-release applicability dimensions define numbering-series eligibility, and what combination defines a separately configured scope?
 
 These remain **TBD**; this document does not resolve them by assumption.
+
+Numbering-condition vocabulary, operators, combination/priority/conflict semantics, and final-number allocation remain open under later Billing/finalization design; they are not remaining Company Configuration implementation decisions.
 
 ## 30. Acceptance Summary
 

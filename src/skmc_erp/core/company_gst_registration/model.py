@@ -122,6 +122,11 @@ class CompanyGSTRegistration(Base):
             "subdivision_code",
             name="uq_company_gst_registrations_company_id_id_subdivision",
         ),
+        UniqueConstraint(
+            "company_id",
+            "id",
+            name="uq_company_gst_registrations_company_id_id",
+        ),
         Index(
             "ix_company_gst_registrations_company_id",
             "company_id",

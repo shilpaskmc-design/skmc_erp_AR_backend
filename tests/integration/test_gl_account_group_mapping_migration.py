@@ -759,4 +759,5 @@ def test_gl_account_group_mapping_migration_contract(database_url: str) -> None:
     command.upgrade(config, REVISION)
     asyncio.run(_assert_reupgrade(database_url, parent_constraints))
 
-    assert ScriptDirectory.from_config(config).get_heads() == [REVISION]
+    script = ScriptDirectory.from_config(config)
+    assert len(script.get_heads()) == 1

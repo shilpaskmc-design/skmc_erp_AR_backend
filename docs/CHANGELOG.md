@@ -34,11 +34,249 @@ Use `CHG-YYYY-MM-DD-NNN`, where the final three digits are a sequence for that d
 - **Implementation impact:** State whether implementation work is required, prohibited, completed, or separately pending.
 - **Open follow-ups:** List unresolved consequences without deciding them by assumption.
 
+### CHG-2026-09-28-001 — Company Configuration GST Excel Import
+
+- **Change ID:** CHG-2026-09-28-001
+- **Date:** 2026-09-28
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / GST Registration / Excel Import
+- **Source / discussion context:** Approved Company Configuration Excel Import GST Registrations and GST Location Mappings implementation request.
+- **Decision:** Extend the signed atomic Company Configuration import with `GST Registrations` and normalized `GST Location Mappings`. GSTIN is the create-or-compare import identity: duplicate workbook GSTINs are invalid, equivalent existing rows are unchanged, and differing existing rows conflict rather than update. Location mapping uses GSTIN plus immutable Company-scoped Location Code, is additive-only, never unmaps or reassigns by omission, and requires matching Company/State jurisdiction. `DRAFT` and `ACTIVE` registrations may receive new assignments; `INACTIVE` registrations may retain existing associations but cannot receive new ones. Same-workbook new Locations must supply a Location Code when referenced by mappings.
+- **Reason:** Support tenant-safe bulk GST onboarding and normalized Location association without exposing UUIDs, turning Excel into a GST maintenance interface, or weakening lifecycle and jurisdiction controls.
+- **Supersedes:** The GST-import and Location-association follow-up in CHG-2026-09-27-001; it does not change GST Registration history, activation, default Location, LUT, Billing, or statutory-validation scope.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Extends the existing workbook parser, signed preview state, stale-state fingerprint, and caller-owned atomic apply; adds transaction-aware GST creation, central inactive-GST Location-assignment protection, and focused unit/PostgreSQL tests. No migration is added and Alembic head remains 0032.
+- **Open follow-ups:** GST Registration history/versioning, checksum/portal/PAN validation, Registration Type reference provisioning, default/principal/additional-place concepts, mapping history/unmapping/reassignment, LUT import, and later tax/Billing imports remain separate work.
+
+### CHG-2026-09-27-001 — Company Configuration Financial Year and Location Excel Import
+
+- **Change ID:** CHG-2026-09-27-001
+- **Date:** 2026-09-27
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Location Identity / Excel Import
+- **Source / discussion context:** Approved Company Configuration Excel Import V1 Financial Years and Locations implementation request.
+- **Decision:** Add immutable, Company-scoped `location_code` as the stable Location business/reference identity while retaining UUID relational identity and mutable, non-unique Location Name. Normalize supplied codes to uppercase with the approved 1-50 character format; generate omitted codes through a concurrency-safe Company counter as `LOC-0001`, `LOC-0002`, and so on; retain codes after inactivation and prohibit reuse. Extend the signed Company Configuration workbook preview/apply flow to `Financial Years` and `Locations`, with deterministic matching, Location address-history service reuse, and one atomic apply transaction.
+- **Reason:** Enable rename-safe and idempotent Location import without exposing UUIDs, while importing deterministic normal Financial Years and preserving existing lifecycle, overlap, geography, history, and Tenant boundaries.
+- **Supersedes:** CHG-2026-09-17-010 only for its deferred/no-Location-Code direction. Its stable UUID, narrow address-history, and finalized-document snapshot decisions remain unchanged.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Adds Migration 0032, Location Code model/API behavior, Company-scoped generation and backfill, multi-sheet import parsing and preview classifications, signed normalized state, caller-owned atomic apply, and focused unit/PostgreSQL tests.
+- **Open follow-ups:** Transition Financial Year import, GST Registration import and Location association, and workbook export/template retention of generated Location Codes remain separate work.
+
+### CHG-2026-09-25-002 — Company Configuration Validation Hardening Batch 2 (UOM & Bank Accounts)
+
+- **Change ID:** CHG-2026-09-25-002
+- **Date:** 2026-09-25
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Validation Hardening / UOM Master & Bank Account Validation
+- **Source / discussion context:** TASK: COMPANY CONFIGURATION — VALIDATION HARDENING BATCH 2 (UOM Master + Bank Account Validation).
+- **Decision:** Implement a global shared UOM master (`core.uoms`) serving both Goods and Services. SKUs require a mandatory controlled UOM reference; Service Types support an optional controlled UOM reference. Service Types and SKUs reference stable UOM codes (e.g. `NOS`, `KGS`, `MTR`, `HRS`, `DAY`, `SET`, `JOB`). Upgrade Company Bank Accounts to store explicit `bank_country_code` referencing `core.countries.code`. Enforce structural India IFSC validation (`^[A-Z]{4}0[A-Z0-9]{6}$`) when `bank_country_code == 'IN'`. Add structural validation for optional SWIFT/BIC (ISO 9362) and optional IBAN (ISO 7064 Modulo 97 checksum via `python-stdnum`). Restrict `account_type` to controlled vocabulary (`CURRENT`, `SAVINGS`, `OVERDRAFT`, `CASH_CREDIT`, `MONEY_MARKET`, `OTHER`).
+- **Reason:** Standardize UOM references across SKUs and Service Types, enforce country-aware bank account jurisdiction, restrict account types to approved vocabulary, and validate international SWIFT/IBAN structure without live network lookups or over-engineering.
+- **Supersedes:** CHG-2026-09-25-001 for deferred UOM and Bank Account validation follow-ups.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `CHANGELOG.md`.
+- **Implementation impact:** Adds `python-stdnum` dependency, `core.uom` model/schema/service, Migration 0031, UOM master seed data, ServiceType/SKU UOM foreign keys and service validation, `bank_country_code` column, bank account structural validators, and updated tests.
+- **Open follow-ups:** Reminder range policies and advanced document numbering remain deferred.
+
+### CHG-2026-09-25-001 — Company Configuration Validation Hardening Batch 1
+
+- **Change ID:** CHG-2026-09-25-001
+- **Date:** 2026-09-25
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Validation Hardening / Core Geography & Compliance
+- **Source / discussion context:** TASK: COMPANY CONFIGURATION — VALIDATION HARDENING BATCH 1 (Email, Website, International Phone, LUT Clarification, Deferred Decisions).
+- **Decision:** Apply real email syntax validation to Company Create/Update using a shared `core.email.validator` module (reused in AR invoice delivery). Apply URL structure validation requiring `http` or `https` schemes to Company website Create/Update. Implement international phone parsing and E.164 canonical normalization using `phonenumbers` for Company phone Create/Update, utilizing Company `country_code` as default region context when unambiguous. Add nullable `calling_code` metadata to `core.countries` reference master with migration 0031 without unique constraints. Clarify LUT reference validation to enforce non-blank whitespace-trimmed string up to 100 characters while preserving non-ARN business references. Record deferred validation decisions for UOM and Bank Account validation.
+- **Reason:** Prevent invalid contact/website formatting, normalize international phone numbers to E.164 standard, support country calling code metadata, and align LUT validation with governing product specs without over-constraining references or adding premature module complexity.
+- **Supersedes:** None.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `CHANGELOG.md`.
+- **Implementation impact:** Adds `phonenumbers` dependency, `core.email.validator`, Migration 0031, Country `calling_code` field/constraint, Company email/website/phone schema validators, LUT reference whitespace/non-blank validation, and updated documentation.
+- **Open follow-ups:** UOM master vocabulary design, country-aware Bank Account validation, and reminder range policies remain deferred.
+
+### CHG-2026-09-24-002 — Final Goods Hierarchy Lifecycle and Company Legal-Name History
+
+- **Change ID:** CHG-2026-09-24-002
+- **Date:** 2026-09-24
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Goods Catalogue Lifecycle / Company Identity History
+- **Source / discussion context:** Company Configuration Final Closure 2 before Excel Bulk Import.
+- **Decision:** Product Category → Product → SKU uses terminal inactivation and replacement rather than re-parenting. A Product Category cannot be inactivated while active Products reference it, and a Product cannot be inactivated while active SKUs reference it; inactive children remain readable and do not block later parent inactivation. Numbering condition and runtime-selection semantics remain deferred to Billing. Company legal-name changes preserve the stable Company identity and current `companies.legal_name` projection while a dedicated effective-dated `company_legal_name_versions` structure preserves non-overlapping chronological history.
+- **Reason:** Close the remaining goods-hierarchy lifecycle decisions without rewriting historical references, and preserve Company legal-name history with the narrowest approved persistence structure while keeping unresolved Billing numbering behavior outside Company Configuration.
+- **Supersedes:** CHG-2026-09-24-001 only for its open Product/Product Category lifecycle, Product/SKU parent-reassignment, and Company legal-name-history follow-ups. It does not change G1 Location versioning, G2 document presentation, or G3 Revenue GL behavior.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Adds Migration 0030, the Company legal-name-version ORM and tenant-scoped history read API, atomic create/change history maintenance, terminal Product Category/Product lifecycle operations, inactive mutation guards, and focused tests.
+- **Open follow-ups:** Final-number allocation, numbering-condition vocabulary/operators/combination/priority/conflict resolution, and runtime counter concurrency remain deferred to Billing/finalization. Future-dated or backdated Company legal-name scheduling/correction and generic Company profile versioning are not implemented.
+
+### CHG-2026-09-24-001 — Company Configuration Closure and Document Numbering Persistence
+
+- **Change ID:** CHG-2026-09-24-001
+- **Date:** 2026-09-24
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Lifecycle Closure / AR Document Numbering
+- **Source / discussion context:** Final Company Configuration closure before Excel Bulk Import.
+- **Decision:** Permit current Company legal-name maintenance while preserving stable Company identity; add controlled terminal Company inactivation from `ACTIVE`; make HSN/SAC replacement inactivation terminal; add guarded Service Category inactivation after active Service Types are retired; add terminal inactivation and inactive-mutation guards for the approved Cost Center masters and actual Teams; and prevent mutation/reassignment of inactive GST Registrations, Service Types, SKUs, GL Accounts, and Account Groups. Cost Center master codes remain immutable stable business-reference/import keys. Implement the already-frozen `document_sequences` and `document_sequence_conditions` persistence contract plus a narrow series create/read/inactivate API.
+- **Reason:** Close inconsistent mutable-inactive behavior, preserve historical master references without cascades or automatic remapping, and persist approved numbering configuration before bulk-import work without implementing Billing-time allocation.
+- **Supersedes:** CHG-2026-09-22-003 only for Company legal-name mutation and `ACTIVE` to `INACTIVE` lifecycle; CHG-2026-09-22-004 only for Service Category lifecycle and terminal inactive leaf mutation guards; CHG-2026-09-22-005 only for Cost Center master lifecycle and code-mutability follow-ups. G1, G2, and G3 behavior is unchanged.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `CHANGELOG.md`.
+- **Implementation impact:** Adds Migration 0029, AR numbering models and series configuration API, controlled Company/HSN-SAC/Service Category/Cost Center lifecycle operations, inactive-master guards, and focused model/API/migration tests.
+- **Open follow-ups:** `company_profile_versions` remains REVIEW, so this batch does not invent legal-name version persistence. Product/Product Category lifecycle and Product/SKU parent reassignment remain unresolved and unchanged. Numbering condition type/operator/combination/priority semantics and runtime allocation remain OPEN; therefore no condition-write API or PI/TI/CN/DN allocation is implemented.
+
+### CHG-2026-09-22-008 — Revenue GL Mapping Enhancement and Deterministic Resolution (Batch G3)
+
+- **Change ID:** CHG-2026-09-22-008
+- **Date:** 2026-09-22
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Revenue GL Mapping / Database and Application Layer
+- **Source / discussion context:** Revenue GL Mapping Enhancement and Deterministic Resolution Batch G3 prompt request.
+- **Decision:** Revenue GL determination is item-based. Each mapping specifies exactly one of Service Type or SKU (enforced via CHECK constraint `ck_revenue_gl_mappings_exactly_one_item`), optional Supply Type (`supply_type_code`), optional Company Location (`company_location_id`, referencing stable Location ID), GL Account (`gl_account_id`), effective date range (`valid_from` / `valid_to`), and status (`ACTIVE` / `INACTIVE`). HSN/SAC is dropped from Revenue GL mappings (`company_hsn_sac_code_id` removed). Deterministic resolution uses fixed precedence: `Item + Supply + Location` > `Item + Supply` > `Item + Location` > `Item only`. Supply Type beats Location. No cross-item fallback occurs between Service Type and SKU. Overlapping identical criteria tuples are prohibited via GIST exclusion constraints. Equivocal matches at the same tier raise `RevenueGlMappingAmbiguityError`. End and inactivate operations preserve history; no DELETE or generic criteria PATCH endpoints exist.
+- **Reason:** Complete the item-based Revenue GL configuration and deterministic resolution engine required for Company Configuration without altering Tax GL behavior, introducing arbitrary priority columns, or implementing invoice creation/journal posting runtime.
+- **Supersedes:** The older HSN/SAC-based Revenue GL wording in `requirements/database.md` and `requirements/COMPANY_CONFIGURATION.md`, and resolves the deferred Revenue GL WRITE follow-up in CHG-2026-09-21-003.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Adds Migration 0028 (`0028_revenue_gl_mapping_enhancement`), updates ORM model, schema, service, router, resolver, and comprehensive migration/API/resolver tests. Alembic head advances to `0028_revenue_gl_mapping_enhancement`.
+- **Open follow-ups:** Transaction billing runtime, invoice creation, proforma/tax invoice generation, tax engine integration, and journal posting remain deferred for future batches.
+
+### CHG-2026-09-22-001 — Company Operational Configuration Application Layer (Batch D)
+
+- **Change ID:** CHG-2026-09-22-001
+- **Date:** 2026-09-22
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Application Layer
+- **Source / discussion context:** Company Operational Configuration and Policy Defaults Batch D implementation request.
+- **Decision:** Implement tenant-scoped application operations for invoice-delivery settings, exchange-rate facts, Company FX policies, reminder policies and reminder schedule rules, plus the unambiguous Company document-template history list. Do not implement public Email Provider Configuration CRUD, runtime delivery/reminder/FX behavior, or document rendering. Do not implement current-branding upsert or current-template selection/activation while the governing selection multiplicity remains OPEN.
+- **Reason:** Deliver the approved configuration application layer while preserving effective history, Company isolation, provider-secret boundaries, and explicit unresolved document-presentation decisions.
+- **Supersedes:** None.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Adds schemas, services, routers, and tests only. No migration or persistence-contract change is introduced; Alembic head remains `0025_company_access_foundation`.
+- **Open follow-ups:** Approve whether branding has one current row and whether each Company/document type has exactly one current template or multiple active choices, then separately approve the corresponding controlled mutation and current-selection APIs.
+
+### CHG-2026-09-22-002 — Statutory and Tax Configuration Application Layer (Batch E)
+
+- **Change ID:** CHG-2026-09-22-002
+- **Date:** 2026-09-22
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Statutory and Tax Application Layer
+- **Source / discussion context:** Statutory and Tax Configuration Batch E implementation request.
+- **Decision:** Implement tenant-scoped HSN/SAC code maintenance, effective HSN/SAC-to-GST-rate history, Financial Year reads and forward-only lifecycle, and GST Registration reads, approved mutable-field maintenance, and forward-only lifecycle. Stable HSN/SAC identity, GSTIN, and GST subdivision remain immutable through these APIs; effective history is ended or inactivated rather than deleted.
+- **Reason:** Complete the approved application operations over existing migrations 0006–0008 without changing persistence or introducing tax calculation, tax determination, transaction, or posting behavior.
+- **Supersedes:** None.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `requirements/tax_satutory_rules.md`; `CHANGELOG.md`.
+- **Implementation impact:** Adds and extends schemas, services, routers, and PostgreSQL integration tests. No migration or model change is introduced; Alembic head remains `0025_company_access_foundation`.
+- **Open follow-ups:** GST checksum/portal verification, tax calculation/determination, statutory publication authority, Company activation, transaction snapshots, and all Batch F work remain separately governed or deferred.
+
+### CHG-2026-09-22-003 — Company and Location Maintenance Application Layer (Batch F1)
+
+- **Change ID:** CHG-2026-09-22-003
+- **Date:** 2026-09-22
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Company and Location Application Layer
+- **Source / discussion context:** Company and Company Location Maintenance Batch F1 implementation request.
+- **Decision:** Implement Tenant-scoped Company list/get and narrow ordinary-profile maintenance, plus Company-scoped Location list/get, current-row maintenance, nullable same-Company/same-jurisdiction GST Registration assignment, and controlled inactivation. Company legal name, controlled identity fields, Company lifecycle, Location reactivation, and Location Cost Center assignment remain unavailable through these maintenance APIs.
+- **Reason:** Deliver approved Company and Location maintenance over the existing persistence contract while preserving concealed Tenant/Company boundaries, fixed-purpose validation, Registered Office uniqueness without automatic switching, restrictive lifecycle behavior, and explicit unresolved transition/history decisions.
+- **Supersedes:** None.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Extends existing Company and Company Location schemas, services, routers, and tests only. No migration or ORM model change is introduced; Alembic head remains `0025_company_access_foundation`.
+- **Open follow-ups:** Approve Company activation/reactivation/inactivation consequences, Company legal-profile history persistence, Location reactivation, Location address-version persistence/synchronization, and any direct Location Cost Center maintenance before implementing those operations.
+
+### CHG-2026-09-22-004 — Service and Product Catalogue Maintenance Application Layer (Batch F2)
+
+- **Change ID:** CHG-2026-09-22-004
+- **Date:** 2026-09-22
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / AR Catalogue Application Layer
+- **Source / discussion context:** Service and Product Catalogue Maintenance Batch F2 implementation request.
+- **Decision:** Implement Tenant- and Company-scoped list/get operations for Service Categories, Service Types, Product Categories, Products, and SKUs; narrowly allow current business-facing name/description/UOM maintenance; allow Service Type SAC and SKU HSN plus selected eligible GST Rate, Tax Treatment, and TCS-check maintenance through the established complete tax-validation contract; and allow controlled inactivation only for leaf Service Types and SKUs. Business codes, parent reassignment, Business Segment assignment, parent lifecycle, reactivation, and generic status PATCH remain unavailable.
+- **Reason:** Complete safe catalogue maintenance over the existing Migration 0009/0010 persistence while preserving stable operational identities, Company ownership, HSN/SAC kind rules, eligible-rate integrity, historical references, and unresolved hierarchy lifecycle semantics.
+- **Supersedes:** None.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Extends existing AR catalogue schemas, services, routers, and tests only. No migration or ORM model change is introduced; Alembic head remains `0025_company_access_foundation`.
+- **Open follow-ups:** Catalogue code-change policy, Service Type/Product/SKU parent reassignment, parent inactivation consequences, all catalogue reactivation behavior, and direct Business Segment assignment/reassignment remain separately governed; Business Segment maintenance belongs to Batch F3.
+
+### CHG-2026-09-22-005 — Cost Center Configuration Application Layer (Batch F3)
+
+- **Change ID:** CHG-2026-09-22-005
+- **Date:** 2026-09-22
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Cost Center Application Layer
+- **Source / discussion context:** Cost Center Configuration and Dimension Assignments Batch F3 implementation request.
+- **Decision:** Implement Tenant- and Company-scoped settings reads; list/get and name-only maintenance for Business Segments, Cost Center Team reporting buckets, and Location Cost Centers; and explicit current-state assign/reassign/unassign operations for Service Type/SKU to Business Segment, actual Team to Cost Center Team, and Company Location to Location Cost Center. Assignments use the existing nullable same-Company FKs and require an active target without creating mapping or history tables.
+- **Reason:** Complete the approved management-reporting configuration application layer while preserving independent reporting bases, optional coverage, direct one-to-many cardinality, Company ownership, and separation from Account Determination.
+- **Supersedes:** None.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Extends existing schemas, services, routers, and tests only. No migration or ORM model change is introduced; Alembic head remains `0025_company_access_foundation`.
+- **Open follow-ups:** Code mutability, master lifecycle-transition consequences, assignment history/effective dating, and the enabled-but-incomplete settings draft rule remain unresolved. Those behaviors are not exposed; existing settings disablement changes flags only and does not clear assignments or delete masters.
+
+### CHG-2026-09-22-006 — Location Address Versioning and Terminal Lifecycle (Batch G1)
+
+- **Change ID:** CHG-2026-09-22-006
+- **Date:** 2026-09-22
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Company Location / Database and Application Layer
+- **Source / discussion context:** Location Address Versioning and Terminal Location Lifecycle Batch G1 implementation request.
+- **Decision:** Implement effective-dated address/jurisdiction versions for each stable Company Location while retaining the current address columns as the operational projection. New Locations atomically receive an initial version from the application business date; real address changes atomically close the current version on the preceding date, create the new open version, and update the projection. Existing Locations are technically backfilled from their creation timestamp date. Future-dated scheduling and backdated correction workflows are not part of MVP. Location lifecycle is terminal `ACTIVE` -> `INACTIVE`, and inactive Locations cannot be reactivated, edited, or reassigned.
+- **Reason:** Preserve master-data address history without changing Location identity or reconstructing finalized-document truth from mutable current configuration.
+- **Supersedes:** The future-dated-version direction and synchronization follow-up in CHG-2026-09-17-010, and the Location address-version/reactivation follow-ups in CHG-2026-09-22-003, only for this explicitly approved MVP scope.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Adds Migration 0026, the Core Location Version ORM model, atomic create/update integration, tenant/company-scoped address-history reads, terminal-inactive mutation guards, and focused PostgreSQL/model/API tests.
+- **Open follow-ups:** No pre-versioning address history can be reconstructed. Finalized-document address snapshots, Audit attribution, and any future scheduling/backdated-correction capability remain separate work.
+
+### CHG-2026-09-22-007 — Company-Wide Billing Document Template and Branding History (Batch G2)
+
+- **Change ID:** CHG-2026-09-22-007
+- **Date:** 2026-09-22
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Document Presentation / Database and Application Layer
+- **Source / discussion context:** Company-Wide Billing Document Template and Branding Alignment Batch G2 implementation request.
+- **Decision:** A Company selects one current code-owned billing-document template for PI, TI, CN, and DN, rather than selecting by document type or on every document. Template and branding changes create immutable history rows; at most one selection and one branding row are current per Company. Branding stays separate from layout and references same-Company `stored_files`. Legacy `document_type` and `show_*` columns remain nullable, non-governing persistence only and are not exposed through the MVP API.
+- **Reason:** Align the existing Migration 0022 structure with the clarified MVP cardinality while retaining useful historical identities and avoiding invented migration winners or destructive rewrites.
+- **Supersedes:** The Company/document-type selection direction and OPEN current-selection multiplicity in CHG-2026-09-17-018, plus the document-presentation follow-up in CHG-2026-09-22-001, only for the explicitly approved Batch G2 scope.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Adds Migration 0027, a small code-owned template registry, Company-wide current/history template APIs, immutable current/history branding APIs, same-Company stored-file validation, ORM alignment, and focused model/schema/PostgreSQL tests. Existing conflicting active rows are retired without selecting a winner.
+- **Open follow-ups:** PDF rendering, PI/TI/CN/DN persistence and generation, finalized-document snapshots/artifacts, object-storage upload integration, and any future presentation customization remain separate work.
+
+### CHG-2026-09-21-003 — AR Accounting Mappings & Company LUT Application Layer (Batch C)
+
+- **Change ID:** CHG-2026-09-21-003
+- **Date:** 2026-09-21
+- **Status:** IMPLEMENTED
+- **Area:** Architecture / Product
+- **Source / discussion context:** Company Configuration Application Layer - Batch C Implementation Request.
+- **Decision:** Implemented controlled business operations for Revenue GL Mapping, Tax GL Mapping, and Company LUT. Revenue GL Mapping WRITE operations were explicitly blocked/deferred because the `supply_type_code` allowed-value source is unresolved. Tax GL Mapping allows both `COMPONENT` and `SECTION` codes with guaranteed overlap prevention using GIST rules and `valid_from / valid_to` continuity. Company LUT creation enforces uniqueness constraints across GST Registration and Financial Year; inactivation and activation operations support lifecycle toggles without generic updates. Multi-tenant access controls pass `Tenant` object downwards, replacing manual contextual resolution.
+- **Reason:** Fulfilled missing application layer requirements for Batch C configuration areas, strictly avoiding inference of unresolved business rules.
+- **Supersedes:** None
+- **Affected documents:** docs/requirements/COMPANY_CONFIGURATION.md, docs/requirements/tax_statutory_rules.md, docs/requirements/database.md
+- **Implementation impact:** Implemented schemas, services, routers, and tests. Post-Batch-C test baseline verified and successful.
+- **Open follow-ups:** Revenue GL Mapping WRITE operations remain deferred pending the approved `supply_type_code` vocabulary and storage decision.
+
+### CHG-2026-09-21-002 — Accounting Structure Application Layer (Batch B)
+
+- **Change ID:** CHG-2026-09-21-002
+- **Date:** 2026-09-21
+- **Status:** IMPLEMENTED
+- **Area:** Architecture
+- **Source / discussion context:** Company Configuration Application Layer - Batch B Implementation Request.
+- **Decision:** Implemented controlled business operations for primary accounting hierarchies, group reparenting, and GL mapping. Explicitly rejected generic CRUD endpoints. Deferred deep-cycle prevention as it requires an unapproved design; fallback to `ck_account_group_relationships_not_self_parent` constraint. Implemented `old.valid_to = new.valid_from - 1 day` effective-date logic. Protected inactivation of account groups containing active child groups or GL account placements.
+- **Reason:** Fulfilled missing application layer requirements for Batch B configuration areas following the strict DB constraints and architecture rules.
+- **Supersedes:** None
+- **Affected documents:** docs/requirements/COMPANY_CONFIGURATION.md, docs/requirements/database.md
+- **Implementation impact:** Implemented schemas, services, routers, and tests. Post-Batch-B test baseline verified.
+- **Open follow-ups:** Deep-cycle prevention logic is explicitly deferred for FUTURE.
+
 ## Baseline Established — 2026-09-17
 
 All product, architecture, requirement, database-design, reference, and historical documentation that existed before this governance setup is treated as the imported documentation baseline. Importing the baseline does not promote every statement to approval: each document and statement retains its own FINAL, CONFIRMED, MVP, PROPOSED, KEEP, ADD, REVIEW, TBD, CONFIGURE, DIRECTION, DEFERRED, POST-MVP, FUTURE, or historical status.
 
 This log does not attempt to reconstruct every prior discussion or Git event. Future meaningful proposed or approved product/design changes must receive a new change ID and must identify any superseded direction.
+
+### CHG-2026-09-21-003 — Freeze Tax Statutory Code persistence details
+
+- **Change ID:** CHG-2026-09-21-003
+- **Date:** 2026-09-21
+- **Status:** APPROVED
+- **Area:** Company Configuration / Tax Reference / Database Design
+- **Source / discussion context:** Explicit approval resolving the final physical-contract questions identified by the proposed Migration 0019 readiness audit.
+- **Decision:** Tax Statutory Code code and name require database nonblank checks, and a supplied nullable rate `case_code` requires the same check without automatic trimming or case normalization. `country_code` is `VARCHAR(2) NOT NULL`, must match exactly two uppercase ASCII letters, and has no Country-master FK. Rate rows reference only the parent Tax Statutory Code ID: SECTION is the primary current use, but persistence does not restrict the parent kind or prohibit COMPONENT-linked rates. Active inclusive named-case and default-case periods use separate partial GiST exclusion constraints, with null representing the default logical case and no sentinel value.
+- **Reason:** Freeze deterministic, database-enforced input and effective-period invariants while avoiding an unapproved Country relationship, parent-kind restriction, or runtime tax policy.
+- **Supersedes:** The open Countries-table FK wording and unresolved overlap-mechanics wording in `requirements/database.md`, and the canonical-Country-FK follow-up in CHG-2026-09-17-014 for these tables. It clarifies, without changing, the approved ordinary-rate/statutory-rate separation.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `CHANGELOG.md`.
+- **Implementation impact:** Documentation/business and physical-contract freeze only. A separately requested Migration 0019 may create only `core.tax_statutory_codes` and `core.tax_statutory_code_rates` after Migration 0018. No migration, ORM model, test, seed, service, API, provider integration, transaction calculation, GL posting, or existing-table change is included here.
+- **Open follow-ups:** Tax publication/correction workflow, advanced TDS/TCS thresholds and cumulative behavior, exemptions/certificates, override authorization, runtime rate selection, transaction-date/rate-date behavior, and transaction calculation remain separately governed or deferred. None blocks the approved persistence-only two-table slice.
 
 ### CHG-2026-09-21-002 — Freeze GL hierarchy-placement and Group-inactivation contracts
 

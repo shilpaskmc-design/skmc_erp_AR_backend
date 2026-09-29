@@ -58,6 +58,18 @@ class BusinessSegmentCreate(BaseModel):
     code: CostCenterCode | None = None
 
 
+class BusinessSegmentUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: CostCenterName | None = None
+
+    @model_validator(mode="after")
+    def reject_null_name(self) -> Self:
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name cannot be null")
+        return self
+
+
 class BusinessSegmentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -75,6 +87,18 @@ class CostCenterTeamCreate(BaseModel):
 
     name: CostCenterName
     code: CostCenterCode | None = None
+
+
+class CostCenterTeamUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: CostCenterName | None = None
+
+    @model_validator(mode="after")
+    def reject_null_name(self) -> Self:
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name cannot be null")
+        return self
 
 
 class CostCenterTeamResponse(BaseModel):
@@ -95,6 +119,12 @@ class TeamCreate(BaseModel):
     name: CostCenterName
 
 
+class CostCenterTeamAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cost_center_team_id: UUID | None
+
+
 class TeamResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -112,6 +142,18 @@ class LocationCostCenterCreate(BaseModel):
 
     name: CostCenterName
     code: CostCenterCode | None = None
+
+
+class LocationCostCenterUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: CostCenterName | None = None
+
+    @model_validator(mode="after")
+    def reject_null_name(self) -> Self:
+        if "name" in self.model_fields_set and self.name is None:
+            raise ValueError("name cannot be null")
+        return self
 
 
 class LocationCostCenterResponse(BaseModel):

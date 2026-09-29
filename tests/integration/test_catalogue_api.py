@@ -233,6 +233,54 @@ async def _seed_tax(
     }
 
 
+async def _insert_unmapped_gst_rate(
+    engine: AsyncEngine,
+    *,
+    rate_percent: int,
+) -> UUID:
+    tax_type_id = await _scalar(
+        engine,
+        "SELECT id FROM core.tax_types WHERE country_code = 'IN' AND code = 'GST'",
+    )
+    return await _scalar(
+        engine,
+        """
+        INSERT INTO core.tax_rates
+            (tax_type_id, rate_percent, country_code, status)
+        VALUES
+            (:tax_type_id, :rate_percent, 'IN', 'ACTIVE')
+        RETURNING id
+        """,
+        {"tax_type_id": tax_type_id, "rate_percent": rate_percent},
+    )
+
+
+async def _insert_gst_treatment(
+    engine: AsyncEngine,
+    *,
+    code: str,
+) -> UUID:
+    tax_type_id = await _scalar(
+        engine,
+        "SELECT id FROM core.tax_types WHERE country_code = 'IN' AND code = 'GST'",
+    )
+    return await _scalar(
+        engine,
+        """
+        INSERT INTO core.tax_treatments
+            (code, name, tax_type_id, country_code, status)
+        VALUES
+            (:code, :name, :tax_type_id, 'IN', 'ACTIVE')
+        RETURNING id
+        """,
+        {
+            "code": code,
+            "name": f"Treatment {code}",
+            "tax_type_id": tax_type_id,
+        },
+    )
+
+
 async def _post(
     client: AsyncClient,
     *,
@@ -502,3 +550,930 @@ async def test_cross_company_parent_and_inactive_tax_reference_rejected(
     assert cross_parent.status_code == 422
     assert inactive_rate.status_code == 409
     assert await _scalar(engine, "SELECT count(*) FROM ar.service_types") == 0
+
+
+async def test_category_reads_updates_duplicates_and_isolation(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    tenant_id = await _insert_tenant(engine)
+    other_tenant_id = await _insert_tenant(engine)
+    company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="BOTH",
+    )
+    sibling_company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="BOTH",
+    )
+    other_company_id = await _insert_company(
+        engine,
+        tenant_id=other_tenant_id,
+        business_nature="BOTH",
+    )
+
+    service_category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="service-categories",
+        payload={"name": "Advisory", "code": "ADV"},
+    )
+    duplicate_service_category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="service-categories",
+        payload={"name": "Consulting", "code": "CON"},
+    )
+    product_category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="product-categories",
+        payload={"name": "Electronics", "code": "ELEC"},
+    )
+    other_category = await _post(
+        client,
+        tenant_id=other_tenant_id,
+        company_id=other_company_id,
+        path="service-categories",
+        payload={"name": "Other Tenant"},
+    )
+    assert (
+        service_category.status_code
+        == duplicate_service_category.status_code
+        == product_category.status_code
+        == other_category.status_code
+        == 201
+    )
+
+    service_list = await client.get(
+        f"/companies/{company_id}/service-categories",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    service_get = await client.get(
+        f"/companies/{company_id}/service-categories/"
+        f"{service_category.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    product_list = await client.get(
+        f"/companies/{company_id}/product-categories",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    product_get = await client.get(
+        f"/companies/{company_id}/product-categories/"
+        f"{product_category.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    cross_company = await client.get(
+        f"/companies/{sibling_company_id}/service-categories/"
+        f"{service_category.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    cross_product_company = await client.get(
+        f"/companies/{sibling_company_id}/product-categories/"
+        f"{product_category.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    cross_tenant = await client.get(
+        f"/companies/{other_company_id}/service-categories/"
+        f"{other_category.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+
+    assert service_list.status_code == 200
+    assert {item["id"] for item in service_list.json()} == {
+        service_category.json()["id"],
+        duplicate_service_category.json()["id"],
+    }
+    assert service_get.status_code == 200
+    assert product_list.status_code == 200
+    assert [item["id"] for item in product_list.json()] == [
+        product_category.json()["id"]
+    ]
+    assert product_get.status_code == 200
+    assert cross_company.status_code == 404
+    assert cross_product_company.status_code == 404
+    assert cross_tenant.status_code == 404
+
+    updated_service = await client.patch(
+        f"/companies/{company_id}/service-categories/"
+        f"{service_category.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"name": "  Advisory Services  "},
+    )
+    updated_product = await client.patch(
+        f"/companies/{company_id}/product-categories/"
+        f"{product_category.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"name": "  Consumer Electronics  "},
+    )
+    duplicate_update = await client.patch(
+        f"/companies/{company_id}/service-categories/"
+        f"{service_category.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"name": "Consulting"},
+    )
+    second_product_category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="product-categories",
+        payload={"name": "Hardware"},
+    )
+    duplicate_product_update = await client.patch(
+        f"/companies/{company_id}/product-categories/"
+        f"{product_category.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"name": "Hardware"},
+    )
+
+    assert updated_service.status_code == 200
+    assert updated_service.json()["name"] == "Advisory Services"
+    assert updated_service.json()["code"] == "ADV"
+    assert updated_product.status_code == 200
+    assert updated_product.json()["name"] == "Consumer Electronics"
+    assert duplicate_update.status_code == 409
+    assert second_product_category.status_code == 201
+    assert duplicate_product_update.status_code == 409
+
+    for path, field_name in (
+        ("service-categories", "code"),
+        ("service-categories", "status"),
+        ("product-categories", "code"),
+        ("product-categories", "status"),
+    ):
+        category_id = (
+            service_category.json()["id"]
+            if path == "service-categories"
+            else product_category.json()["id"]
+        )
+        rejected = await client.patch(
+            f"/companies/{company_id}/{path}/{category_id}",
+            headers={"X-Tenant-ID": str(tenant_id)},
+            json={field_name: "not-allowed"},
+        )
+        assert rejected.status_code == 422
+
+
+async def test_service_type_reads_updates_tax_validation_and_lifecycle(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    tenant_id = await _insert_tenant(engine)
+    company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="SERVICES",
+    )
+    other_company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="SERVICES",
+    )
+    first_sac = await _seed_tax(
+        engine,
+        company_id=company_id,
+        classification_type="SAC",
+    )
+    second_sac = await _seed_tax(
+        engine,
+        company_id=company_id,
+        classification_type="SAC",
+    )
+    hsn = await _seed_tax(
+        engine,
+        company_id=company_id,
+        classification_type="HSN",
+    )
+    other_sac = await _seed_tax(
+        engine,
+        company_id=other_company_id,
+        classification_type="SAC",
+    )
+    eligible_rate_id = await _insert_unmapped_gst_rate(
+        engine,
+        rate_percent=5,
+    )
+    await _execute(
+        engine,
+        """
+        INSERT INTO core.company_hsn_sac_tax_rates
+            (company_hsn_sac_code_id, tax_rate_id, valid_from, status)
+        VALUES
+            (:classification_id, :tax_rate_id, '2001-01-01', 'ACTIVE')
+        """,
+        {
+            "classification_id": second_sac["classification_id"],
+            "tax_rate_id": eligible_rate_id,
+        },
+    )
+    updated_treatment_id = await _insert_gst_treatment(
+        engine,
+        code="SERVICE_EXPORT",
+    )
+    unmapped_rate_id = await _insert_unmapped_gst_rate(
+        engine,
+        rate_percent=12,
+    )
+    category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="service-categories",
+        payload={"name": "Advisory"},
+    )
+    service_type = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="service-types",
+        payload={
+            "service_category_id": category.json()["id"],
+            "name": "GST Advisory",
+            "code": "GST-ADV",
+            "company_hsn_sac_code_id": str(first_sac["classification_id"]),
+            "selected_tax_rate_id": str(first_sac["tax_rate_id"]),
+            "tax_treatment_id": str(first_sac["treatment_id"]),
+        },
+    )
+    assert service_type.status_code == 201
+    service_url = (
+        f"/companies/{company_id}/service-types/{service_type.json()['id']}"
+    )
+
+    listed = await client.get(
+        f"/companies/{company_id}/service-types",
+        params={"service_category_id": category.json()["id"]},
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    fetched = await client.get(
+        service_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    concealed = await client.get(
+        f"/companies/{other_company_id}/service-types/"
+        f"{service_type.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [
+        service_type.json()["id"]
+    ]
+    assert fetched.status_code == 200
+    assert concealed.status_code == 404
+
+    updated = await client.patch(
+        service_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={
+            "name": "  Updated Advisory  ",
+            "description": "  Updated description  ",
+            "uom": "  HOUR  ",
+            "company_hsn_sac_code_id": str(second_sac["classification_id"]),
+            "selected_tax_rate_id": str(eligible_rate_id),
+            "tax_treatment_id": str(updated_treatment_id),
+            "tcs_check_required": True,
+        },
+    )
+    wrong_kind = await client.patch(
+        service_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"company_hsn_sac_code_id": str(hsn["classification_id"])},
+    )
+    cross_company = await client.patch(
+        service_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={
+            "company_hsn_sac_code_id": str(other_sac["classification_id"])
+        },
+    )
+    ineligible_rate = await client.patch(
+        service_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"selected_tax_rate_id": str(unmapped_rate_id)},
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Updated Advisory"
+    assert updated.json()["description"] == "Updated description"
+    assert updated.json()["uom"] == "HOUR"
+    assert updated.json()["company_hsn_sac_code_id"] == str(
+        second_sac["classification_id"]
+    )
+    assert updated.json()["selected_tax_rate_id"] == str(eligible_rate_id)
+    assert updated.json()["tax_treatment_id"] == str(updated_treatment_id)
+    assert updated.json()["tcs_check_required"] is True
+    assert updated.json()["business_segment_id"] is None
+    assert wrong_kind.status_code == 422
+    assert cross_company.status_code == 422
+    assert ineligible_rate.status_code == 422
+
+    for field_name in (
+        "code",
+        "service_category_id",
+        "business_segment_id",
+        "status",
+    ):
+        rejected = await client.patch(
+            service_url,
+            headers={"X-Tenant-ID": str(tenant_id)},
+            json={field_name: "not-allowed"},
+        )
+        assert rejected.status_code == 422
+
+    active_parent_rejected = await client.post(
+        f"/companies/{company_id}/service-categories/"
+        f"{category.json()['id']}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    inactivated = await client.post(
+        f"{service_url}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    reactivate = await client.post(
+        f"{service_url}/activate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    parent_inactivate = await client.post(
+        f"/companies/{company_id}/service-categories/"
+        f"{category.json()['id']}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    assert inactivated.status_code == 200
+    assert inactivated.json()["status"] == "INACTIVE"
+    assert active_parent_rejected.status_code == 409
+    assert reactivate.status_code == 404
+    assert parent_inactivate.status_code == 200
+    assert parent_inactivate.json()["status"] == "INACTIVE"
+    assert (
+        await client.patch(
+            service_url,
+            headers={"X-Tenant-ID": str(tenant_id)},
+            json={"name": "Forbidden"},
+        )
+    ).status_code == 409
+    assert (
+        await client.patch(
+            f"/companies/{company_id}/service-categories/"
+            f"{category.json()['id']}",
+            headers={"X-Tenant-ID": str(tenant_id)},
+            json={"name": "Forbidden"},
+        )
+    ).status_code == 409
+
+
+async def test_catalogue_business_segment_assignment_current_state(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    tenant_id = await _insert_tenant(engine)
+    company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="BOTH",
+    )
+    other_company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="BOTH",
+    )
+    sac = await _seed_tax(
+        engine,
+        company_id=company_id,
+        classification_type="SAC",
+    )
+    hsn = await _seed_tax(
+        engine,
+        company_id=company_id,
+        classification_type="HSN",
+    )
+    service_category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="service-categories",
+        payload={"name": "Advisory"},
+    )
+    service_type = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="service-types",
+        payload={
+            "service_category_id": service_category.json()["id"],
+            "name": "GST Advisory",
+            "company_hsn_sac_code_id": str(sac["classification_id"]),
+            "selected_tax_rate_id": str(sac["tax_rate_id"]),
+            "tax_treatment_id": str(sac["treatment_id"]),
+        },
+    )
+    product_category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="product-categories",
+        payload={"name": "Devices"},
+    )
+    product = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="products",
+        payload={
+            "product_category_id": product_category.json()["id"],
+            "name": "Laptop",
+        },
+    )
+    sku = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="skus",
+        payload={
+            "product_id": product.json()["id"],
+            "sku_code": "LAPTOP",
+            "name": "Laptop",
+            "uom": "EA",
+            "company_hsn_sac_code_id": str(hsn["classification_id"]),
+            "selected_tax_rate_id": str(hsn["tax_rate_id"]),
+            "tax_treatment_id": str(hsn["treatment_id"]),
+        },
+    )
+    assert service_type.json()["business_segment_id"] is None
+    assert sku.json()["business_segment_id"] is None
+
+    segments = []
+    for name, owner_id in (
+        ("Domestic", company_id),
+        ("International", company_id),
+        ("Other Company", other_company_id),
+    ):
+        segment = await _post(
+            client,
+            tenant_id=tenant_id,
+            company_id=owner_id,
+            path="business-segments",
+            payload={"name": name},
+        )
+        assert segment.status_code == 201
+        segments.append(segment.json()["id"])
+
+    for entity_path, entity_id in (
+        ("service-types", service_type.json()["id"]),
+        ("skus", sku.json()["id"]),
+    ):
+        url = (
+            f"/companies/{company_id}/{entity_path}/{entity_id}/"
+            "business-segment"
+        )
+        for target_id in (segments[0], segments[1], None):
+            response = await client.put(
+                url,
+                headers={"X-Tenant-ID": str(tenant_id)},
+                json={"business_segment_id": target_id},
+            )
+            read_back = await client.get(
+                f"/companies/{company_id}/{entity_path}/{entity_id}",
+                headers={"X-Tenant-ID": str(tenant_id)},
+            )
+            assert response.status_code == 200
+            assert response.json()["business_segment_id"] == target_id
+            assert read_back.status_code == 200
+            assert read_back.json()["business_segment_id"] == target_id
+        cross_company = await client.put(
+            url,
+            headers={"X-Tenant-ID": str(tenant_id)},
+            json={"business_segment_id": segments[2]},
+        )
+        assert cross_company.status_code == 422
+
+    assigned_before_inactivation = await client.put(
+        f"/companies/{company_id}/service-types/"
+        f"{service_type.json()['id']}/business-segment",
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"business_segment_id": segments[0]},
+    )
+    segment_inactivated = await client.post(
+        f"/companies/{company_id}/business-segments/"
+        f"{segments[0]}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    inactive_target = await client.put(
+        f"/companies/{company_id}/service-types/"
+        f"{service_type.json()['id']}/business-segment",
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"business_segment_id": segments[0]},
+    )
+    inactive_mutation = await client.patch(
+        f"/companies/{company_id}/business-segments/{segments[0]}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"name": "Forbidden"},
+    )
+    assert assigned_before_inactivation.status_code == 200
+    assert segment_inactivated.status_code == 200
+    assert segment_inactivated.json()["status"] == "INACTIVE"
+    assert inactive_target.status_code == 409
+    assert inactive_mutation.status_code == 409
+    assert await _scalar(
+        engine,
+        "SELECT business_segment_id FROM ar.service_types WHERE id = :id",
+        {"id": UUID(service_type.json()["id"])},
+    ) == UUID(segments[0])
+
+
+async def test_product_reads_and_approved_update_fields(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    tenant_id = await _insert_tenant(engine)
+    company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="GOODS",
+    )
+    other_company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="GOODS",
+    )
+    category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="product-categories",
+        payload={"name": "Electronics"},
+    )
+    product = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="products",
+        payload={
+            "product_category_id": category.json()["id"],
+            "name": "Laptop",
+            "code": "LAPTOP",
+        },
+    )
+    assert category.status_code == product.status_code == 201
+    product_url = f"/companies/{company_id}/products/{product.json()['id']}"
+
+    listed = await client.get(
+        f"/companies/{company_id}/products",
+        params={"product_category_id": category.json()["id"]},
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    fetched = await client.get(
+        product_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    concealed = await client.get(
+        f"/companies/{other_company_id}/products/{product.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    updated = await client.patch(
+        product_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={
+            "name": "  Business Laptop  ",
+            "description": "  Portable computer  ",
+        },
+    )
+
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [product.json()["id"]]
+    assert fetched.status_code == 200
+    assert concealed.status_code == 404
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Business Laptop"
+    assert updated.json()["description"] == "Portable computer"
+    assert updated.json()["code"] == "LAPTOP"
+
+    for field_name in (
+        "code",
+        "product_category_id",
+        "status",
+    ):
+        rejected = await client.patch(
+            product_url,
+            headers={"X-Tenant-ID": str(tenant_id)},
+            json={field_name: "not-allowed"},
+        )
+        assert rejected.status_code == 422
+
+    lifecycle = await client.post(
+        f"{product_url}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    inactive_read = await client.get(
+        product_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    inactive_mutation = await client.patch(
+        product_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"name": "Forbidden"},
+    )
+    reactivate = await client.post(
+        f"{product_url}/activate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    assert lifecycle.status_code == 200
+    assert lifecycle.json()["status"] == "INACTIVE"
+    assert inactive_read.status_code == 200
+    assert inactive_read.json()["status"] == "INACTIVE"
+    assert inactive_mutation.status_code == 409
+    assert reactivate.status_code == 404
+
+
+async def test_sku_reads_updates_tax_validation_and_lifecycle(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    tenant_id = await _insert_tenant(engine)
+    company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="GOODS",
+    )
+    other_company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="GOODS",
+    )
+    first_hsn = await _seed_tax(
+        engine,
+        company_id=company_id,
+        classification_type="HSN",
+    )
+    second_hsn = await _seed_tax(
+        engine,
+        company_id=company_id,
+        classification_type="HSN",
+    )
+    sac = await _seed_tax(
+        engine,
+        company_id=company_id,
+        classification_type="SAC",
+    )
+    other_hsn = await _seed_tax(
+        engine,
+        company_id=other_company_id,
+        classification_type="HSN",
+    )
+    eligible_rate_id = await _insert_unmapped_gst_rate(
+        engine,
+        rate_percent=12,
+    )
+    await _execute(
+        engine,
+        """
+        INSERT INTO core.company_hsn_sac_tax_rates
+            (company_hsn_sac_code_id, tax_rate_id, valid_from, status)
+        VALUES
+            (:classification_id, :tax_rate_id, '2001-01-01', 'ACTIVE')
+        """,
+        {
+            "classification_id": second_hsn["classification_id"],
+            "tax_rate_id": eligible_rate_id,
+        },
+    )
+    updated_treatment_id = await _insert_gst_treatment(
+        engine,
+        code="GOODS_EXPORT",
+    )
+    unmapped_rate_id = await _insert_unmapped_gst_rate(
+        engine,
+        rate_percent=5,
+    )
+    category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="product-categories",
+        payload={"name": "Electronics"},
+    )
+    product = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="products",
+        payload={
+            "product_category_id": category.json()["id"],
+            "name": "Laptop",
+        },
+    )
+    sku = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="skus",
+        payload={
+            "product_id": product.json()["id"],
+            "sku_code": "LAPTOP-I5",
+            "name": "Laptop i5",
+            "uom": "EA",
+            "company_hsn_sac_code_id": str(first_hsn["classification_id"]),
+            "selected_tax_rate_id": str(first_hsn["tax_rate_id"]),
+            "tax_treatment_id": str(first_hsn["treatment_id"]),
+        },
+    )
+    assert category.status_code == product.status_code == sku.status_code == 201
+    sku_url = f"/companies/{company_id}/skus/{sku.json()['id']}"
+
+    listed = await client.get(
+        f"/companies/{company_id}/skus",
+        params={"product_id": product.json()["id"]},
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    fetched = await client.get(
+        sku_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    concealed = await client.get(
+        f"/companies/{other_company_id}/skus/{sku.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    updated = await client.patch(
+        sku_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={
+            "name": "  Laptop i5 Updated  ",
+            "description": "  Current catalogue description  ",
+            "uom": "  UNIT  ",
+            "company_hsn_sac_code_id": str(second_hsn["classification_id"]),
+            "selected_tax_rate_id": str(eligible_rate_id),
+            "tax_treatment_id": str(updated_treatment_id),
+            "tcs_check_required": True,
+        },
+    )
+    wrong_kind = await client.patch(
+        sku_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"company_hsn_sac_code_id": str(sac["classification_id"])},
+    )
+    cross_company = await client.patch(
+        sku_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"company_hsn_sac_code_id": str(other_hsn["classification_id"])},
+    )
+    ineligible_rate = await client.patch(
+        sku_url,
+        headers={"X-Tenant-ID": str(tenant_id)},
+        json={"selected_tax_rate_id": str(unmapped_rate_id)},
+    )
+
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()] == [sku.json()["id"]]
+    assert fetched.status_code == 200
+    assert concealed.status_code == 404
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Laptop i5 Updated"
+    assert updated.json()["uom"] == "UNIT"
+    assert updated.json()["sku_code"] == "LAPTOP-I5"
+    assert updated.json()["company_hsn_sac_code_id"] == str(
+        second_hsn["classification_id"]
+    )
+    assert updated.json()["selected_tax_rate_id"] == str(eligible_rate_id)
+    assert updated.json()["tax_treatment_id"] == str(updated_treatment_id)
+    assert updated.json()["business_segment_id"] is None
+    assert wrong_kind.status_code == 422
+    assert cross_company.status_code == 422
+    assert ineligible_rate.status_code == 422
+
+    for field_name in (
+        "sku_code",
+        "product_id",
+        "business_segment_id",
+        "status",
+    ):
+        rejected = await client.patch(
+            sku_url,
+            headers={"X-Tenant-ID": str(tenant_id)},
+            json={field_name: "not-allowed"},
+        )
+        assert rejected.status_code == 422
+
+    inactivated = await client.post(
+        f"{sku_url}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    reactivate = await client.post(
+        f"{sku_url}/activate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    assert inactivated.status_code == 200
+    assert inactivated.json()["status"] == "INACTIVE"
+    assert reactivate.status_code == 404
+    assert (
+        await client.patch(
+            sku_url,
+            headers={"X-Tenant-ID": str(tenant_id)},
+            json={"name": "Forbidden"},
+        )
+    ).status_code == 409
+
+
+async def test_goods_hierarchy_parent_inactivation_requires_inactive_children(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    tenant_id = await _insert_tenant(engine)
+    company_id = await _insert_company(
+        engine,
+        tenant_id=tenant_id,
+        business_nature="GOODS",
+    )
+    tax = await _seed_tax(
+        engine,
+        company_id=company_id,
+        classification_type="HSN",
+    )
+    category = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="product-categories",
+        payload={"name": "Devices"},
+    )
+    product = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="products",
+        payload={
+            "product_category_id": category.json()["id"],
+            "name": "Terminal",
+        },
+    )
+    sku = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        path="skus",
+        payload={
+            "product_id": product.json()["id"],
+            "sku_code": "TERM-1",
+            "name": "Terminal SKU",
+            "uom": "EA",
+            "company_hsn_sac_code_id": str(tax["classification_id"]),
+            "selected_tax_rate_id": str(tax["tax_rate_id"]),
+            "tax_treatment_id": str(tax["treatment_id"]),
+        },
+    )
+    category_url = (
+        f"/companies/{company_id}/product-categories/{category.json()['id']}"
+    )
+    product_url = f"/companies/{company_id}/products/{product.json()['id']}"
+    sku_url = f"/companies/{company_id}/skus/{sku.json()['id']}"
+
+    category_blocked = await client.post(
+        f"{category_url}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    product_blocked = await client.post(
+        f"{product_url}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    sku_inactivated = await client.post(
+        f"{sku_url}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    product_inactivated = await client.post(
+        f"{product_url}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    category_inactivated = await client.post(
+        f"{category_url}/inactivate",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+
+    assert category_blocked.status_code == 409
+    assert product_blocked.status_code == 409
+    assert sku_inactivated.status_code == 200
+    assert product_inactivated.status_code == 200
+    assert category_inactivated.status_code == 200
+    assert product_inactivated.json()["status"] == "INACTIVE"
+    assert category_inactivated.json()["status"] == "INACTIVE"
+
+    for url in (category_url, product_url, sku_url):
+        readable = await client.get(
+            url,
+            headers={"X-Tenant-ID": str(tenant_id)},
+        )
+        mutation = await client.patch(
+            url,
+            headers={"X-Tenant-ID": str(tenant_id)},
+            json={"name": "Forbidden"},
+        )
+        reactivation = await client.post(
+            f"{url}/activate",
+            headers={"X-Tenant-ID": str(tenant_id)},
+        )
+        assert readable.status_code == 200
+        assert readable.json()["status"] == "INACTIVE"
+        assert mutation.status_code == 409
+        assert reactivation.status_code == 404

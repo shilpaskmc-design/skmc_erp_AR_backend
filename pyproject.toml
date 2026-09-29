@@ -15,6 +15,10 @@ dependencies = [
     "alembic>=1.16,<2.0",
     "pydantic-settings>=2.10,<3.0",
     "tzdata>=2026.1",
+    "phonenumbers>=9.0,<10.0",
+    "python-stdnum>=2.0,<3.0",
+    "openpyxl>=3.1,<4.0",
+    "python-multipart>=0.0.20,<1.0",
 ]
 
 [project.optional-dependencies]

@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
@@ -96,6 +97,7 @@ async def configure_company_fiscal_settings(
     tenant: Tenant,
     company_id: UUID,
     settings_data: CompanyFiscalSettingsUpdate,
+    commit: bool = True,
 ) -> CompanyFiscalSettings:
     company = await _get_tenant_company(
         session=session,
@@ -121,14 +123,17 @@ async def configure_company_fiscal_settings(
 
     try:
         await session.flush()
-        await session.commit()
+        if commit:
+            await session.commit()
     except IntegrityError as exc:
-        await session.rollback()
+        if commit:
+            await session.rollback()
         raise FinancialYearStateConflictError(
             "Fiscal settings could not be saved due to a data conflict"
         ) from exc
 
-    await session.refresh(settings)
+    if commit:
+        await session.refresh(settings)
     return settings
 
 
@@ -138,6 +143,7 @@ async def create_financial_year(
     tenant: Tenant,
     company_id: UUID,
     financial_year_data: FinancialYearCreate,
+    commit: bool = True,
 ) -> FinancialYear:
     company = await _get_tenant_company(
         session=session,
@@ -181,12 +187,104 @@ async def create_financial_year(
 
     try:
         await session.flush()
-        await session.commit()
+        if commit:
+            await session.commit()
     except IntegrityError as exc:
-        await session.rollback()
+        if commit:
+            await session.rollback()
         raise FinancialYearStateConflictError(
             "Financial Year could not be created due to a data conflict"
         ) from exc
 
+    if commit:
+        await session.refresh(financial_year)
+    return financial_year
+
+
+async def get_company_fiscal_settings(
+    *, session: AsyncSession, tenant: Tenant, company_id: UUID
+) -> CompanyFiscalSettings | None:
+    company = await _get_tenant_company(
+        session=session, tenant=tenant, company_id=company_id
+    )
+    return await session.get(CompanyFiscalSettings, company.id)
+
+
+async def list_financial_years(
+    *, session: AsyncSession, tenant: Tenant, company_id: UUID
+) -> Sequence[FinancialYear]:
+    company = await _get_tenant_company(
+        session=session, tenant=tenant, company_id=company_id
+    )
+    result = await session.scalars(
+        select(FinancialYear)
+        .where(FinancialYear.company_id == company.id)
+        .order_by(FinancialYear.start_date)
+    )
+    return result.all()
+
+
+async def get_financial_year(
+    *,
+    session: AsyncSession,
+    tenant: Tenant,
+    company_id: UUID,
+    financial_year_id: UUID,
+) -> FinancialYear | None:
+    return await session.scalar(
+        select(FinancialYear)
+        .join(Company, FinancialYear.company_id == Company.id)
+        .where(
+            FinancialYear.id == financial_year_id,
+            FinancialYear.company_id == company_id,
+            Company.tenant_id == tenant.id,
+        )
+    )
+
+
+async def get_open_financial_year_for_date(
+    *, session: AsyncSession, tenant: Tenant, company_id: UUID, as_of_date: date
+) -> FinancialYear | None:
+    await _get_tenant_company(
+        session=session, tenant=tenant, company_id=company_id
+    )
+    return await session.scalar(
+        select(FinancialYear).where(
+            FinancialYear.company_id == company_id,
+            FinancialYear.status == FinancialYearStatus.OPEN,
+            FinancialYear.start_date <= as_of_date,
+            FinancialYear.end_date >= as_of_date,
+        )
+    )
+
+
+async def transition_financial_year(
+    *,
+    session: AsyncSession,
+    tenant: Tenant,
+    company_id: UUID,
+    financial_year_id: UUID,
+    target_status: FinancialYearStatus,
+) -> FinancialYear | None:
+    financial_year = await get_financial_year(
+        session=session,
+        tenant=tenant,
+        company_id=company_id,
+        financial_year_id=financial_year_id,
+    )
+    if financial_year is None:
+        return None
+    allowed = {
+        FinancialYearStatus.DRAFT: FinancialYearStatus.OPEN,
+        FinancialYearStatus.OPEN: FinancialYearStatus.CLOSED,
+    }
+    if allowed.get(financial_year.status) is not target_status:
+        raise FinancialYearStateConflictError(
+            f"Financial Year cannot transition from {financial_year.status.value} "
+            f"to {target_status.value}"
+        )
+    financial_year.status = target_status
+    financial_year.updated_at = datetime.now(UTC)
+    await session.commit()
     await session.refresh(financial_year)
     return financial_year

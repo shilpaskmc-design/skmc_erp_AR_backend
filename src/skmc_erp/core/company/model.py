@@ -1,9 +1,10 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import (
     CheckConstraint,
+    Date,
     DateTime,
     Enum,
     ForeignKeyConstraint,
@@ -13,6 +14,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
+from sqlalchemy.dialects.postgresql import ExcludeConstraint
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -101,6 +103,11 @@ class Company(Base):
         ),
         PrimaryKeyConstraint("id", name="pk_companies"),
         UniqueConstraint("company_code", name="uq_companies_company_code"),
+        UniqueConstraint(
+            "tenant_id",
+            "id",
+            name="uq_companies_tenant_id_id",
+        ),
         Index(
             "ix_companies_tenant_id_organisation_id",
             "tenant_id",
@@ -168,6 +175,63 @@ class Company(Base):
         server_default=text("CURRENT_TIMESTAMP"),
     )
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+
+class CompanyLegalNameVersion(Base):
+    __tablename__ = "company_legal_name_versions"
+    __table_args__ = (
+        CheckConstraint(
+            "btrim(legal_name) <> ''",
+            name="ck_company_legal_name_versions_legal_name_not_blank",
+        ),
+        CheckConstraint(
+            "valid_to IS NULL OR valid_to >= valid_from",
+            name="ck_company_legal_name_versions_date_order",
+        ),
+        ForeignKeyConstraint(
+            ["company_id"],
+            ["core.companies.id"],
+            name="fk_company_legal_name_versions_company_id_companies",
+            ondelete="NO ACTION",
+        ),
+        PrimaryKeyConstraint("id", name="pk_company_legal_name_versions"),
+        ExcludeConstraint(
+            ("company_id", "="),
+            (text("daterange(valid_from, valid_to, '[]')"), "&&"),
+            name="ex_company_legal_name_versions_company_effective_range",
+            using="gist",
+        ),
+        Index(
+            "ix_company_legal_name_versions_company_valid_from",
+            "company_id",
+            "valid_from",
+        ),
+        Index(
+            "uq_company_legal_name_versions_open_company",
+            "company_id",
+            unique=True,
+            postgresql_where=text("valid_to IS NULL"),
+        ),
+        {"schema": "core"},
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        primary_key=True,
+        server_default=text("gen_random_uuid()"),
+    )
+    company_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True),
+        nullable=False,
+    )
+    legal_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    valid_from: Mapped[date] = mapped_column(Date, nullable=False)
+    valid_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),

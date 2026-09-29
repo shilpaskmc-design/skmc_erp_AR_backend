@@ -14,6 +14,7 @@ def test_company_bank_account_metadata_matches_contract() -> None:
     assert list(table.columns.keys()) == [
         "id",
         "company_id",
+        "bank_country_code",
         "account_holder_name",
         "bank_name",
         "account_number",
@@ -31,6 +32,7 @@ def test_company_bank_account_metadata_matches_contract() -> None:
     ]
     assert table.c.gl_account_id.nullable
     assert table.c.account_type.nullable
+    assert table.c.bank_country_code.nullable
     assert table.c.is_default_for_billing.server_default.arg.text == "false"
     assert table.c.status.server_default is None
 
@@ -46,6 +48,7 @@ def test_company_bank_account_constraints_match_contract() -> None:
         "ck_company_bank_accounts_holder_name_not_blank",
         "ck_company_bank_accounts_bank_name_not_blank",
         "ck_company_bank_accounts_status",
+        "ck_company_bank_accounts_account_type",
     }
 
     foreign_keys = {
@@ -66,6 +69,11 @@ def test_company_bank_account_constraints_match_contract() -> None:
         "fk_company_bank_accounts_currency_code_currencies": (
             ("currency_code",),
             ("core.currencies.code",),
+            "NO ACTION",
+        ),
+        "fk_company_bank_accounts_bank_country_code_countries": (
+            ("bank_country_code",),
+            ("core.countries.code",),
             "NO ACTION",
         ),
         "fk_company_bank_accounts_company_gl_account": (

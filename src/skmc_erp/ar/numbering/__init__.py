@@ -1,0 +1,1 @@
+"""AR document-numbering configuration."""

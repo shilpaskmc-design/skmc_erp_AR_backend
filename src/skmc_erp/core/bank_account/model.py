@@ -20,6 +20,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 from skmc_erp.model_base import Base
 
 
+class BankAccountType(StrEnum):
+    CURRENT = "CURRENT"
+    SAVINGS = "SAVINGS"
+    OVERDRAFT = "OVERDRAFT"
+    CASH_CREDIT = "CASH_CREDIT"
+    MONEY_MARKET = "MONEY_MARKET"
+    OTHER = "OTHER"
+
+
 class CompanyBankAccountStatus(StrEnum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
@@ -40,6 +49,10 @@ class CompanyBankAccount(Base):
             "status IN ('ACTIVE', 'INACTIVE')",
             name="ck_company_bank_accounts_status",
         ),
+        CheckConstraint(
+            "account_type IS NULL OR account_type IN ('CURRENT', 'SAVINGS', 'OVERDRAFT', 'CASH_CREDIT', 'MONEY_MARKET', 'OTHER')",
+            name="ck_company_bank_accounts_account_type",
+        ),
         ForeignKeyConstraint(
             ["company_id"],
             ["core.companies.id"],
@@ -50,6 +63,12 @@ class CompanyBankAccount(Base):
             ["currency_code"],
             ["core.currencies.code"],
             name="fk_company_bank_accounts_currency_code_currencies",
+            ondelete="NO ACTION",
+        ),
+        ForeignKeyConstraint(
+            ["bank_country_code"],
+            ["core.countries.code"],
+            name="fk_company_bank_accounts_bank_country_code_countries",
             ondelete="NO ACTION",
         ),
         ForeignKeyConstraint(
@@ -84,6 +103,7 @@ class CompanyBankAccount(Base):
     company_id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), nullable=False
     )
+    bank_country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)
     account_holder_name: Mapped[str] = mapped_column(String(200), nullable=False)
     bank_name: Mapped[str] = mapped_column(String(200), nullable=False)
     account_number: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -121,3 +141,14 @@ class CompanyBankAccount(Base):
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),
     )
+
+    def __repr__(self) -> str:
+        masked_acc = (
+            f"****{self.account_number[-4:]}"
+            if len(self.account_number) >= 4
+            else "****"
+        )
+        return (
+            f"<CompanyBankAccount(id={self.id}, bank_name={self.bank_name!r}, "
+            f"account_number={masked_acc!r})>"
+        )

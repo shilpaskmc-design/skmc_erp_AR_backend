@@ -158,7 +158,7 @@ async def _scalar(
     sql: str,
     parameters: Mapping[str, object] | None = None,
 ) -> object:
-    async with engine.connect() as connection:
+    async with engine.begin() as connection:
         return await connection.scalar(text(sql), parameters or {})
 
 
@@ -414,3 +414,55 @@ async def test_duplicate_overlap_and_historical_coexistence(
         engine,
         "SELECT count(*) FROM core.financial_years",
     ) == 3
+
+
+async def test_financial_year_reads_as_of_and_lifecycle(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    tenant_id = uuid4()
+    company_id = uuid4()
+    await _insert_tenant(engine, tenant_id)
+    await _insert_company(engine, company_id=company_id, tenant_id=tenant_id)
+    headers = {"X-Tenant-ID": str(tenant_id)}
+    assert (await _configure(client, tenant_id=tenant_id, company_id=company_id, payload={"fiscal_year_pattern": "APR_MAR"})).status_code == 200
+    created = await _generate(client, tenant_id=tenant_id, company_id=company_id, start_year=2026)
+    financial_year_id = created.json()["id"]
+
+    settings = await client.get(f"/companies/{company_id}/financial-year-settings", headers=headers)
+    listed = await client.get(f"/companies/{company_id}/financial-years", headers=headers)
+    fetched = await client.get(f"/companies/{company_id}/financial-years/{financial_year_id}", headers=headers)
+    assert settings.status_code == 200
+    assert len(listed.json()) == 1
+    assert fetched.status_code == 200
+
+    invalid_close = await client.post(f"/companies/{company_id}/financial-years/{financial_year_id}/close", headers=headers)
+    assert invalid_close.status_code == 409
+    opened = await client.post(f"/companies/{company_id}/financial-years/{financial_year_id}/open", headers=headers)
+    assert opened.status_code == 200 and opened.json()["status"] == "OPEN"
+    active = await client.get(f"/companies/{company_id}/financial-years/open", params={"as_of_date": "2026-04-01"}, headers=headers)
+    assert active.status_code == 200 and active.json()["id"] == financial_year_id
+    closed = await client.post(f"/companies/{company_id}/financial-years/{financial_year_id}/close", headers=headers)
+    assert closed.status_code == 200 and closed.json()["status"] == "CLOSED"
+    reopen = await client.post(f"/companies/{company_id}/financial-years/{financial_year_id}/open", headers=headers)
+    assert reopen.status_code == 409
+    no_open = await client.get(f"/companies/{company_id}/financial-years/open", params={"as_of_date": "2026-04-01"}, headers=headers)
+    assert no_open.status_code == 404
+
+
+async def test_financial_year_reads_conceal_cross_tenant_company(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    owner_tenant = uuid4()
+    other_tenant = uuid4()
+    company_id = uuid4()
+    await _insert_tenant(engine, owner_tenant)
+    await _insert_tenant(engine, other_tenant)
+    await _insert_company(engine, company_id=company_id, tenant_id=owner_tenant)
+    response = await client.get(
+        f"/companies/{company_id}/financial-years",
+        headers={"X-Tenant-ID": str(other_tenant)},
+    )
+    assert response.status_code == 200
+    assert response.json() == []

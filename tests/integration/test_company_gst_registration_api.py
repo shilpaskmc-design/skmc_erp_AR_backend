@@ -161,7 +161,7 @@ async def _scalar(
     sql: str,
     parameters: Mapping[str, object] | None = None,
 ) -> object:
-    async with engine.connect() as connection:
+    async with engine.begin() as connection:
         return await connection.scalar(text(sql), parameters or {})
 
 
@@ -503,3 +503,102 @@ async def test_optional_registration_type_must_be_active_when_supplied(
     assert inactive.status_code == 409
     assert active.status_code == 201
     assert active.json()["gst_registration_type_id"] == str(active_type_id)
+
+
+async def test_registration_reads_mutable_fields_and_lifecycle(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    tenant_id = uuid4()
+    company_id = uuid4()
+    type_id = uuid4()
+    await _insert_tenant(engine, tenant_id)
+    await _insert_company(engine, company_id=company_id, tenant_id=tenant_id)
+    await _insert_geography(engine, country_code="IN", subdivision_code="IN-UP", gst_state_code="09")
+    await _execute(engine, "INSERT INTO core.gst_registration_types (id, code, name, status) VALUES (:id, 'REGULAR_BATCH_E', 'Regular', 'ACTIVE')", {"id": type_id})
+    created = await _post(client, tenant_id=tenant_id, company_id=company_id, payload=_payload(gst_registration_type_id=str(type_id)))
+    registration_id = created.json()["id"]
+    headers = {"X-Tenant-ID": str(tenant_id)}
+    listed = await client.get(f"/companies/{company_id}/gst-registrations", headers=headers)
+    fetched = await client.get(f"/companies/{company_id}/gst-registrations/{registration_id}", headers=headers)
+    assert len(listed.json()) == 1 and fetched.status_code == 200
+    immutable = await client.patch(f"/companies/{company_id}/gst-registrations/{registration_id}", headers=headers, json={"gstin": "09ZZZZZ9999Z9Z9"})
+    assert immutable.status_code == 422
+    invalid_dates = await client.patch(f"/companies/{company_id}/gst-registrations/{registration_id}", headers=headers, json={"valid_from": "2026-12-31", "valid_to": "2026-01-01"})
+    assert invalid_dates.status_code == 422
+    updated = await client.patch(f"/companies/{company_id}/gst-registrations/{registration_id}", headers=headers, json={"registered_legal_name": "Updated Legal Name", "valid_from": "2026-01-01"})
+    assert updated.status_code == 200
+    assert updated.json()["registered_legal_name"] == "Updated Legal Name"
+    activated = await client.post(f"/companies/{company_id}/gst-registrations/{registration_id}/activate", headers=headers)
+    assert activated.status_code == 200 and activated.json()["status"] == "ACTIVE"
+    competing = await _post(
+        client,
+        tenant_id=tenant_id,
+        company_id=company_id,
+        payload=_payload(
+            gstin="09ABCDE1234F2Z4",
+            gst_registration_type_id=str(type_id),
+        ),
+    )
+    assert competing.status_code == 201
+    competing_activation = await client.post(
+        f"/companies/{company_id}/gst-registrations/{competing.json()['id']}/activate",
+        headers=headers,
+    )
+    assert competing_activation.status_code == 409
+    financial_year_id = await _scalar(
+        engine,
+        "INSERT INTO core.financial_years "
+        "(company_id, start_date, end_date, display_code, status) "
+        "VALUES (:company, '2026-04-01', '2027-03-31', 'FY2026-27', 'OPEN') "
+        "RETURNING id",
+        {"company": company_id},
+    )
+    await _execute(
+        engine,
+        "INSERT INTO ar.company_luts "
+        "(company_id, gst_registration_id, financial_year_id, lut_reference, "
+        "valid_from, status) VALUES "
+        "(:company, :registration, :year, 'LUT-BATCH-E', '2026-04-01', 'ACTIVE')",
+        {
+            "company": company_id,
+            "registration": UUID(registration_id),
+            "year": financial_year_id,
+        },
+    )
+    invalid_activate = await client.post(f"/companies/{company_id}/gst-registrations/{registration_id}/activate", headers=headers)
+    assert invalid_activate.status_code == 409
+    inactive = await client.post(f"/companies/{company_id}/gst-registrations/{registration_id}/inactivate", headers=headers)
+    assert inactive.status_code == 200 and inactive.json()["status"] == "INACTIVE"
+    assert await _scalar(
+        engine,
+        "SELECT count(*) FROM ar.company_luts WHERE gst_registration_id = :id",
+        {"id": UUID(registration_id)},
+    ) == 1
+    reactivate = await client.post(f"/companies/{company_id}/gst-registrations/{registration_id}/activate", headers=headers)
+    assert reactivate.status_code == 409
+    inactive_mutation = await client.patch(
+        f"/companies/{company_id}/gst-registrations/{registration_id}",
+        headers=headers,
+        json={"registered_legal_name": "Forbidden"},
+    )
+    assert inactive_mutation.status_code == 409
+
+
+async def test_registration_reads_conceal_other_company(
+    api_context: tuple[AsyncClient, AsyncEngine, FastAPI],
+) -> None:
+    client, engine, _ = api_context
+    tenant_id = uuid4()
+    owner_company = uuid4()
+    other_company = uuid4()
+    await _insert_tenant(engine, tenant_id)
+    await _insert_company(engine, company_id=owner_company, tenant_id=tenant_id)
+    await _insert_company(engine, company_id=other_company, tenant_id=tenant_id)
+    await _insert_geography(engine, country_code="IN", subdivision_code="IN-UP", gst_state_code="09")
+    created = await _post(client, tenant_id=tenant_id, company_id=owner_company, payload=_payload())
+    response = await client.get(
+        f"/companies/{other_company}/gst-registrations/{created.json()['id']}",
+        headers={"X-Tenant-ID": str(tenant_id)},
+    )
+    assert response.status_code == 404

@@ -1,6 +1,10 @@
 from functools import lru_cache
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+DEFAULT_COMPANY_IMPORT_SIGNING_KEY = "development-company-import-signing-key"
 
 
 class Settings(BaseSettings):
@@ -9,6 +13,9 @@ class Settings(BaseSettings):
     environment: str = "development"
 
     database_url: str
+    company_import_signing_key: SecretStr = SecretStr(
+        DEFAULT_COMPANY_IMPORT_SIGNING_KEY
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",

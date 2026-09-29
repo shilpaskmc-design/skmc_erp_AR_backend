@@ -128,6 +128,41 @@ class AccountHierarchy(Base):
     )
 
 
+class CompanyAccountingSettings(Base):
+    __tablename__ = "company_accounting_settings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["company_id"],
+            ["core.companies.id"],
+            name="fk_company_accounting_settings_company_id_companies",
+            ondelete="NO ACTION",
+        ),
+        ForeignKeyConstraint(
+            ["company_id", "default_receivable_gl_account_id"],
+            ["core.gl_accounts.company_id", "core.gl_accounts.id"],
+            name="fk_company_accounting_settings_company_receivable_gl",
+            ondelete="NO ACTION",
+        ),
+        PrimaryKeyConstraint("company_id", name="pk_company_accounting_settings"),
+        {"schema": "core"},
+    )
+
+    company_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), nullable=False
+    )
+    default_receivable_gl_account_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_by: Mapped[UUID | None] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), nullable=True
+    )
+
+
 class AccountGroup(Base):
     __tablename__ = "account_groups"
     __table_args__ = (

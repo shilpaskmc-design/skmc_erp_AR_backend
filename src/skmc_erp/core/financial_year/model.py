@@ -127,6 +127,11 @@ class FinancialYear(Base):
             "display_code",
             name="uq_financial_years_company_id_display_code",
         ),
+        UniqueConstraint(
+            "company_id",
+            "id",
+            name="uq_financial_years_company_id_id",
+        ),
         ExcludeConstraint(
             (column("company_id"), "="),
             (

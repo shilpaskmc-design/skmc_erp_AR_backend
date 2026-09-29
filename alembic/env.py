@@ -22,22 +22,33 @@ from skmc_erp.core.company import model as company_model  # noqa: F401
 from skmc_erp.core.cost_center import model as cost_center_model  # noqa: F401
 from skmc_erp.core.company_location import model as company_location_model  # noqa: F401
 from skmc_erp.core.accounting import model as accounting_model  # noqa: F401
+from skmc_erp.core.access import model as access_model  # noqa: F401
 from skmc_erp.core.bank_account import model as bank_account_model  # noqa: F401
 from skmc_erp.core.company_gst_registration import (  # noqa: F401
     model as company_gst_registration_model,
 )
 from skmc_erp.core.currency import model as currency_model  # noqa: F401
 from skmc_erp.core.entity_type import model as entity_type_model  # noqa: F401
+from skmc_erp.core.email import model as email_model  # noqa: F401
 from skmc_erp.core.financial_year import model as financial_year_model  # noqa: F401
+from skmc_erp.core.file_storage import model as file_storage_model  # noqa: F401
 from skmc_erp.core.fx import model as fx_model  # noqa: F401
 from skmc_erp.core.geography import model as geography_model  # noqa: F401
 from skmc_erp.core.organisation import model as organisation_model  # noqa: F401
 from skmc_erp.core.tenant import model as tenant_model  # noqa: F401
 from skmc_erp.core.tax_reference import model as tax_reference_model  # noqa: F401
 from skmc_erp.ar.catalogue import model as catalogue_model  # noqa: F401
+from skmc_erp.ar.accounting import model as ar_accounting_model  # noqa: F401
+from skmc_erp.ar.compliance import model as ar_compliance_model  # noqa: F401
+from skmc_erp.ar.document_presentation import (  # noqa: F401
+    model as document_presentation_model,
+)
+from skmc_erp.ar.delivery import model as delivery_model  # noqa: F401
 from skmc_erp.ar.currency import model as ar_currency_model  # noqa: F401
 from skmc_erp.ar.fx import model as ar_fx_model  # noqa: F401
 from skmc_erp.ar.payment_term import model as payment_term_model  # noqa: F401
+from skmc_erp.ar.numbering import model as numbering_model  # noqa: F401
+from skmc_erp.ar.reminder import model as reminder_model  # noqa: F401
 from skmc_erp.model_base import Base
 
 ALEMBIC_VERSION_TABLE = "alembic_version"

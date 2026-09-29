@@ -5,7 +5,11 @@ from pydantic import ValidationError
 
 from skmc_erp.core.cost_center.schema import (
     BusinessSegmentCreate,
+    BusinessSegmentUpdate,
     CompanyCostCenterSettingsUpdate,
+    CostCenterTeamAssignment,
+    CostCenterTeamUpdate,
+    LocationCostCenterUpdate,
     TeamCreate,
 )
 
@@ -55,3 +59,37 @@ def test_master_inputs_strip_names_and_reject_system_fields() -> None:
         )
     with pytest.raises(ValidationError):
         TeamCreate(name="BIS Team", cost_center_team_id=uuid4())
+
+
+@pytest.mark.parametrize(
+    "schema_type",
+    [BusinessSegmentUpdate, CostCenterTeamUpdate, LocationCostCenterUpdate],
+)
+def test_master_updates_allow_only_non_null_name(schema_type: type) -> None:
+    assert schema_type.model_validate({"name": "  Updated  "}).name == "Updated"
+
+    with pytest.raises(ValidationError):
+        schema_type.model_validate({"name": None})
+    with pytest.raises(ValidationError):
+        schema_type.model_validate({"code": "CHANGED"})
+    with pytest.raises(ValidationError):
+        schema_type.model_validate({"status": "INACTIVE"})
+
+
+def test_team_assignment_is_nullable_but_required_and_narrow() -> None:
+    team_id = uuid4()
+    assert (
+        CostCenterTeamAssignment(cost_center_team_id=team_id).cost_center_team_id
+        == team_id
+    )
+    assert (
+        CostCenterTeamAssignment(cost_center_team_id=None).cost_center_team_id
+        is None
+    )
+
+    with pytest.raises(ValidationError):
+        CostCenterTeamAssignment.model_validate({})
+    with pytest.raises(ValidationError):
+        CostCenterTeamAssignment.model_validate(
+            {"cost_center_team_id": str(team_id), "name": "Injected"}
+        )
