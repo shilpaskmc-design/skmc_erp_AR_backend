@@ -144,6 +144,14 @@ Do not make every possible shipment field mandatory.
 
 ---
 
+# Company Activation and Transaction Readiness
+
+Company `ACTIVE` confirms that the approved operational MVP AR/Billing minimum is configured: legal identity and applicable identifiers, Registered Office, fiscal/current FY, GST establishment mapping, applicable catalogue, default term and billing bank, PI/TI/CN/DN numbering, and Company-wide presentation. Accounting/CoA, Cost Centers, email, reminders, Team membership, LUT, and FX are not universal Company-activation blockers.
+
+Activation does not replace transaction-time validation. Billing must still re-evaluate the exact seller Location/GST context, document date/type, item, supply route, currency, numbering eligibility, and other applicable facts. LUT remains runtime-required for `EXPWOP` and `SEZWOP`, not `EXPWP` or `SEZWP` solely by their route; FX remains runtime-required only when a foreign/non-base-currency conversion is attempted.
+
+---
+
 # Invoice Lines
 
 Service line:

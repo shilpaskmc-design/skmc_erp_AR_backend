@@ -139,6 +139,8 @@ Recurring billing originates from Sales Order or contract configuration: **Sales
 
 - Maintains reusable company/legal setup, locations, GST registrations, bank accounts, fiscal and currency context, and shared statutory references. AR configures and uses LUTs for applicable export/SEZ billing.
 - Defines business nature and enables the applicable service and/or product catalogue.
+- Treats Company `ACTIVE` as derived operational readiness for the supported MVP AR/Billing flow: legal/statutory identity, Registered Office, current fiscal/GST/catalogue configuration, default term/billing bank, all four document-numbering types, and Company-wide presentation are complete.
+- Keeps Accounting/CoA, Cost Centers, email, reminders, Team membership, LUT, and FX outside the universal activation gate; transaction-specific Billing still validates LUT and FX when their contexts apply.
 - Distinguishes shared fiscal, currency, exchange-rate reference, Cost Center, and tax-reference capabilities from AR numbering, catalogue, reporting use, tax transaction behavior, and document presentation.
 - Separates shared company information from AR-specific settings.
 

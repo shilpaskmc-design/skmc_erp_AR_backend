@@ -274,7 +274,7 @@ async def _assert_0033_contract(
 def test_catalogue_base_gst_nature_migration_contract(database_url: str) -> None:
     config = Config("alembic.ini")
     assert ScriptDirectory.from_config(config).get_current_head() == (
-        "0033_catalogue_base_gst_nature"
+        "0034_company_identifier_foundation"
     )
 
     command.upgrade(config, "0032_company_location_codes")

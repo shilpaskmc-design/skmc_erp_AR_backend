@@ -34,6 +34,20 @@ Use `CHG-YYYY-MM-DD-NNN`, where the final three digits are a sequence for that d
 - **Implementation impact:** State whether implementation work is required, prohibited, completed, or separately pending.
 - **Open follow-ups:** List unresolved consequences without deciding them by assumption.
 
+### CHG-2026-09-29-002 — Company Activation Readiness and Legal Identifier Foundation
+
+- **Change ID:** CHG-2026-09-29-002
+- **Date:** 2026-09-29
+- **Status:** IMPLEMENTED
+- **Area:** Company Configuration / Legal Identity / AR Operational Readiness
+- **Source / discussion context:** Explicit approval of the MVP Company Activation blocker set and the final `company_identifier_types.country_code` database decision.
+- **Decision:** Company `ACTIVE` means operationally ready for the supported MVP AR/Billing workflow. Derive readiness from authoritative configuration and require Company identity, universal India-MVP PAN, REQUIRED Entity-Type identifier rules, a usable Registered Office, fiscal settings/current OPEN FY, usable active GST Registration/Location mapping, business-nature catalogue readiness, usable default Payment Term and billing Bank Account, current PI/TI/CN/DN numbering, and a usable active Company-wide document presentation. Implement the three approved generic identifier tables with `company_identifier_types.country_code` referencing `core.countries.code`; do not add PAN/CIN/LLPIN Company columns or seed an unapproved statutory matrix.
+- **Reason:** Prevent activation before the normal MVP billing path is operational while retaining dynamic jurisdiction/entity applicability and avoiding stale readiness flags.
+- **Supersedes:** The activation-minimum TBD in Company Configuration and proposed activation gate in `AR_MVP_ARCHITECTURE.md`; it finalizes the identifier-jurisdiction representation left open by CHG-2026-09-17-008. It does not supersede transaction-specific Billing finalization checks.
+- **Affected documents:** `requirements/COMPANY_CONFIGURATION.md`; `requirements/database.md`; `requirements/billing_and_invoicing.md`; `PRODUCT_OVERVIEW.md`; `AR_MVP_ARCHITECTURE.md`; `CHANGELOG.md`.
+- **Implementation impact:** Migration 0034 adds only `company_identifier_types`, `company_identifiers`, and `entity_type_identifier_rules`. A shared AR-owned evaluator serves readiness preview and locked activation; no readiness table or flag is stored. Accounting/CoA and GL mappings, Cost Centers, email, reminders, Team membership, LUT, and FX remain outside the universal activation gate.
+- **Open follow-ups:** Platform provisioning of PAN/CIN/LLPIN reference rows and the approved Entity-Type rule matrix remains an operational reference-data decision; none is guessed or seeded here. Audit Trail is intentionally deferred for separate design after the Twenty study. Accounting readiness, LUT runtime enforcement, foreign-currency FX resolution, document number consumption, rendering, and Billing finalization remain separate slices.
+
 ### CHG-2026-09-29-001 — Catalogue Base GST Nature and Conditional GST Rate
 
 - **Change ID:** CHG-2026-09-29-001

@@ -113,7 +113,7 @@ def _require_goods_business(company: Company) -> None:
         )
 
 
-async def _validate_tax_configuration(
+async def validate_catalogue_tax_configuration(
     *,
     session: AsyncSession,
     company: Company,
@@ -267,7 +267,7 @@ async def create_service_type(
         )
     if category.status is not CatalogueStatus.ACTIVE:
         raise CatalogueStateConflictError("Service Category is not active")
-    await _validate_tax_configuration(
+    await validate_catalogue_tax_configuration(
         session=session,
         company=company,
         hsn_sac_code_id=service_data.company_hsn_sac_code_id,
@@ -372,7 +372,7 @@ async def create_sku(
         raise CatalogueInputError("Product does not exist for the Company")
     if product.status is not CatalogueStatus.ACTIVE:
         raise CatalogueStateConflictError("Product is not active")
-    await _validate_tax_configuration(
+    await validate_catalogue_tax_configuration(
         session=session,
         company=company,
         hsn_sac_code_id=sku_data.company_hsn_sac_code_id,
@@ -584,7 +584,7 @@ async def update_service_type(
         "selected_tax_rate_id",
     }
     if tax_fields.intersection(changes):
-        await _validate_tax_configuration(
+        await validate_catalogue_tax_configuration(
             session=session,
             company=company,
             hsn_sac_code_id=changes.get(
@@ -955,7 +955,7 @@ async def update_sku(
         "selected_tax_rate_id",
     }
     if tax_fields.intersection(changes):
-        await _validate_tax_configuration(
+        await validate_catalogue_tax_configuration(
             session=session,
             company=company,
             hsn_sac_code_id=changes.get(

@@ -97,7 +97,7 @@ Company administrators can maintain the identity and contact information of the 
 | MSME applicability/details | Captured where applicable. | CONDITIONAL |
 | Country | Establishes Company country context. | MVP |
 | Base Time Zone | Supplies Company-local time for scheduled behaviour. | MVP |
-| Company Email, Phone, Website | Maintains Company contact channels; exact activation requirements remain TBD. | CONFIGURABLE |
+| Company Email, Phone, Website | Maintains optional Company contact channels; these do not block Company activation. | CONFIGURABLE |
 | Company Logo | Reusable Company identity asset. | CONFIGURABLE |
 | Company Status | Supports `DRAFT`, `ACTIVE`, and `INACTIVE`; incomplete setup may persist while Draft. | MVP |
 
@@ -1168,37 +1168,37 @@ Company Configuration may later contain only genuinely reusable prerequisites or
 
 **Requirement — MVP**
 
-The system allows authorized users to review applicable Company Configuration before activation. Activation readiness distinguishes required, conditional, optional, and unresolved setup without inventing field-level mandatory rules.
+Company `ACTIVE` means that the Company is operationally ready for the supported MVP AR/Billing workflow. An authorized user can preview the same derived readiness evaluation used by activation. Readiness is computed from authoritative configuration and is not stored as a second mutable status or checklist flag.
 
 | Configuration Area | Required for Activation? | Notes |
 |---|---|---|
 | Tenant relationship | Required | Every Company operates inside one Tenant isolation context. |
 | Organisation relationship | Optional | No MVP inheritance is provided. |
-| Company identity minimum | TBD | Legal identity is required conceptually; the exact activation field set is not confirmed. |
-| One active Registered Office | Required | Exactly one active Registered Office is the confirmed Company rule. |
-| GST registration | Conditional | Applies where the Company is GST-registered/applicable. |
-| LUT | Conditional | Required for current EXPWOP and SEZWOP final billing; EXPWP and SEZWP are not blocked solely for missing LUT. |
-| Fiscal setup | TBD | Authoritative period context is required for financial activity; whether incomplete setup blocks Company activation itself is not confirmed. |
-| AR document numbering | Conditional | Required before finalising each applicable AR document type; whether every series must exist at Company activation is TBD. |
-| Business nature | Required | Determines required Service/Product catalogue path. |
-| Service Catalogue | Conditional | Required for Services or Both. Exact minimum entries before activation are TBD. |
-| Product/SKU Catalogue | Conditional | Required for Goods or Both. Exact minimum entries before activation are TBD. |
-| Cost-centre reporting | Optional | Configured only when the Company enables it. |
-| Currency setup | TBD | Relevant AR transactions must use allowed Company currencies; the activation gate and exact minimum currency set are not confirmed. |
-| Exchange rates | Conditional | Needed only when relevant configured currency purposes require conversion. |
-| Bank Accounts | TBD | Company may maintain accounts; activation dependency is not confirmed. |
-| Tax setup | Conditional | Applies according to Company and transaction tax context. |
-| Accounting setup | No for Company activation; required before applicable invoice finalization | Stable GL Accounts, one default Receivable GL for eligible Customer Sales, and unambiguous date-effective Revenue/Tax GL mappings must cover the resolved context. Hierarchy setup preserves reporting placement but does not change transaction amounts. |
-| Document presentation/assets | Optional | Reusable presentation is configurable; full template builder is deferred. |
+| Company identity | Required | Non-blank legal name, active country, active jurisdiction-compatible Entity Type, valid IANA Base Time Zone, active Base Currency, and explicit SERVICES, GOODS, or BOTH Business Nature. |
+| Legal identifiers | Required / entity-rule driven | PAN is mandatory for the India-first MVP. Other required identifiers, including CIN or LLPIN where applicable, come only from REQUIRED `entity_type_identifier_rules`; no Company-name or hardcoded legal-form matrix is used. |
+| One active Registered Office | Required | The active Registered Office and its current address/geographic references must be usable. |
+| Fiscal setup | Required | Company Fiscal Settings and an OPEN Financial Year covering the current date are required. |
+| GST registration and Location mapping | Required | The MVP supports GST-registered seller Companies: at least one currently usable ACTIVE GST Registration is required, and every active GST Registration must have an active jurisdiction-compatible Company Location mapping. This is product scope, not a general legal claim about unregistered sellers. |
+| Service Catalogue | Required for SERVICES or BOTH | At least one ACTIVE Service Type is required. Every ACTIVE Service Type must remain billing-ready with active SAC, approved Base GST Nature, and the 0033 conditional eligible-rate rules; UOM is optional. |
+| Product/SKU Catalogue | Required for GOODS or BOTH | At least one ACTIVE SKU is required. Every ACTIVE SKU must remain billing-ready with active HSN, mandatory active UOM, approved Base GST Nature, and the 0033 conditional eligible-rate rules. |
+| Payment Terms | Required | At least one usable ACTIVE Payment Term and one usable ACTIVE default are required. |
+| Bank Accounts | Required | At least one usable ACTIVE Company Bank Account and one usable active `is_default_for_billing` account are required. A Bank-to-GL mapping is not part of this gate. |
+| AR document numbering | Required | A usable ACTIVE current-Financial-Year series is required for each supported type: PI, TI, CN, and DN. Advanced runtime allocation/condition behavior is separate. |
+| Document presentation | Required | One usable ACTIVE Company-wide presentation selection is required across PI/TI/CN/DN. A full template builder and rendering are outside this gate. |
+| Accounting / Chart of Accounts | No | Hierarchies, Groups, GL placement, default Receivable GL, Revenue/Tax GL mappings, and Bank-to-GL mapping are separate Accounting readiness concerns. |
+| Cost-centre reporting and Team membership | No | Business Segment, Cost Center Team, Location Cost Center, and actual-Team membership setup do not block activation. |
+| LUT | No; runtime only | Required for applicable EXPWOP and SEZWOP Billing. EXPWP and SEZWP are not blocked solely for missing LUT. |
+| Exchange rates / FX policy | No; runtime only | Required only when an attempted foreign/non-base-currency transaction needs conversion. |
 | Email delivery | Optional | May be OFF; document overrides operate only when applicable. |
 | AR reminder defaults | Optional | Reminder is part of the product but Company defaults can be enabled/configured. |
 
 **Acceptance Criteria**
 
-- Authorized users can review readiness before activation.
-- The review distinguishes blocking, conditional, optional, and TBD areas.
-- Conditional checks are evaluated only when their stated condition applies.
-- The system does not infer unconfirmed mandatory identity fields or configuration.
+- `GET /companies/{company_id}/readiness` reports all current blocking checks with stable codes and messages.
+- `POST /companies/{company_id}/activate` uses the same evaluator, locks the Company transition, leaves a failed Company unchanged, and changes only a ready `DRAFT` Company to `ACTIVE`.
+- Repeating activation for a still-ready `ACTIVE` Company is idempotent. `INACTIVE` remains terminal and cannot reactivate.
+- Readiness and activation preserve Tenant concealment and return 404 for a cross-Tenant Company ID.
+- Accounting/CoA, Cost Centers, email, reminders, Team membership, LUT, and FX are not silently promoted into universal activation blockers.
 
 ## 25A. Company Access
 
@@ -1243,6 +1243,8 @@ Configuration changes that affect financial behaviour are auditable. Audit infor
 Audit coverage includes GST, fiscal pattern/period, numbering, exchange rates, tax configuration, Chart of Accounts and account mappings, Bank Accounts, document/email configuration, and cost-centre assignments. The same expectation applies to other configuration changes that materially affect financial output or behaviour.
 
 Audit storage design is outside this document.
+
+The Audit Trail implementation remains intentionally deferred to a separate design after the Twenty study. Company Activation does not introduce an audit table or treat current-row timestamps as a substitute for that later design.
 
 **Acceptance Criteria**
 
@@ -1290,8 +1292,7 @@ Only the following unresolved decisions materially influence Company Configurati
 
 1. What is the exact ownership boundary among platform Service Catalogue suggestions, Company adoption, and Company-specific service configuration?
 2. Are Team and other management-reporting references shared across modules, or owned by AR configuration in the MVP?
-3. What exact minimum identity, catalogue, numbering, currency, Bank Account, and tax setup blocks Company activation?
-4. What Company-level Receipt FX configuration is required, and how does its purpose differ from Billing and Reporting FX?
+3. What Company-level Receipt FX configuration is required, and how does its purpose differ from Billing and Reporting FX?
 
 These remain **TBD**; this document does not resolve them by assumption.
 
@@ -1314,7 +1315,7 @@ Numbering-condition vocabulary, operators, combination/priority/conflict semanti
 | Accounting setup | Company-defined stable GL Accounts and effective mappings resolve Receivable, Revenue, and CGST/SGST/IGST accounts without hardcoded account names. |
 | Presentation and email | Reusable Company defaults and document behaviour coexist without changing historical output. |
 | Reminders and recurrence | Company reminder defaults are bounded; actual recurrence remains Sales-Order/contract driven. |
-| Activation | Review presents required, conditional, optional, and TBD readiness accurately. |
+| Activation | Derived readiness and activation enforce the approved operational MVP AR/Billing minimum while keeping Accounting/CoA, reporting, delivery, reminders, LUT, and FX in their approved separate scopes. |
 | Integrity and audit | Material configuration changes preserve historical outcomes and record who/when/what. |
 
 ## 31. Inputs for Domain Modeling

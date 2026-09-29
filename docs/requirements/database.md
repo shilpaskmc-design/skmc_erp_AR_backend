@@ -405,7 +405,7 @@ Do not store `tenant_id`, `company_id`, PAN, CIN, LLPIN, GSTIN, legal address, t
 
 **Columns**
 - `id` UUID PRIMARY KEY DEFAULT `gen_random_uuid()`
-- mandatory jurisdiction reference — exact physical representation remains OPEN for this table
+- `country_code` VARCHAR(2) NOT NULL FK → `countries.code`
 - `code` VARCHAR(50) NOT NULL
 - `name` VARCHAR(150) NOT NULL
 - `status` controlled value NOT NULL
@@ -413,7 +413,7 @@ Do not store `tenant_id`, `company_id`, PAN, CIN, LLPIN, GSTIN, legal address, t
 **Column meanings and reasons**
 
 - `id` is the stable identity referenced by Company values and Entity-Type applicability rules. Code and name are not relational primary keys.
-- The mandatory jurisdiction reference identifies where the identifier type applies. The approved business rule is mandatory jurisdiction; physical `country_id` versus `country_code` remains open for this table. The direct `country_code` approved for `entity_types` does not silently resolve this separate contract.
+- `country_code` is the finalized mandatory jurisdiction representation and references the shared Country master. It matches the Company's and Entity Type's two-letter jurisdiction during applicability/readiness evaluation.
 - `code` is the stable, platform-controlled machine identity, such as `PAN`, `CIN`, `LLPIN`, or `UEN`. It uses uppercase letters, numbers, and underscores only, cannot be blank, and remains stable after use.
 - `name` is the human-readable label, such as `Permanent Account Number` or `Unique Entity Number`. It may be corrected without changing UUID or code and cannot be blank.
 - `status` is `ACTIVE` when normally available for applicable Company configuration and `INACTIVE` when retained historically but not normally offered for new use.
@@ -423,8 +423,9 @@ Do not store `tenant_id`, `company_id`, PAN, CIN, LLPIN, GSTIN, legal address, t
 - Identifier Type 1:N Company Identifiers.
 - Identifier Type 1:N Entity Type Identifier Rules.
 - PRIMARY KEY: `id`.
-- NOT NULL: `id`, mandatory jurisdiction reference, `code`, `name`, and `status`.
-- UNIQUE: (jurisdiction reference, `code`).
+- NOT NULL: `id`, `country_code`, `code`, `name`, and `status`.
+- FOREIGN KEY: `country_code` → `countries.code`, restrictive/no-action.
+- UNIQUE `uq_company_identifier_types_country_code_code`: (`country_code`, `code`).
 - Controlled `status`: `ACTIVE` or `INACTIVE`.
 - Blank code/name is rejected; canonical code-format validation belongs in database/backend implementation.
 - Used Identifier Types are inactivated rather than normally hard-deleted.
@@ -436,6 +437,8 @@ It separates what a legal identifier type is from the value a Company has and fr
 **Platform boundary**
 
 This is shared reference data and has no `tenant_id`. Normal Tenant/Company users cannot create or change identifier types. Do not add speculative format columns such as regex, length, validation script, or JSON rules; identifier-specific formatting and normalization remain open.
+
+Migration 0034 implements this table together with `company_identifiers` and `entity_type_identifier_rules`. It deliberately seeds no PAN/CIN/LLPIN types or Entity-Type matrix because platform reference provisioning and the complete statutory matrix are not approved seed contracts. Activation consumes whatever active approved reference rows and REQUIRED rules have been provisioned; PAN remains an explicit India-MVP blocker.
 
 ---
 
@@ -515,7 +518,7 @@ GSTIN remains in GST Registration architecture and is not moved into this generi
 - NOT NULL: `id`, `entity_type_id`, `identifier_type_id`, `requirement_level`, `created_at`, and `updated_at`.
 - UNIQUE: (`entity_type_id`, `identifier_type_id`).
 - Controlled `requirement_level`: `REQUIRED` or `OPTIONAL`.
-- Entity Type and Identifier Type must have compatible jurisdictions. Database/backend enforcement is required eventually; exact enforcement remains open until the Country/jurisdiction representation is frozen.
+- Entity Type and Identifier Type must have compatible jurisdictions. The activation evaluator enforces this against the selected Company's country; platform reference-data maintenance must not create cross-jurisdiction rules.
 
 **Why this table exists**
 
@@ -574,7 +577,7 @@ Platform/system administration owns these applicability rules. Normal Tenant/Com
 - `base_timezone` supplies Company-local operational, scheduling, and reporting context; Tenant time zone is not a substitute.
 - `base_currency_code` identifies the Company's base currency through the shared Currency master. Reporting and AR permissions remain separate Company configurations.
 - `business_nature` is functional configuration: `SERVICES` enables the Service catalogue path, `GOODS` enables Product/SKU setup, and `BOTH` enables both.
-- `status` is `DRAFT`, `ACTIVE`, or `INACTIVE`, stored as `VARCHAR(20)` with no database default. Incomplete configuration may persist in `DRAFT`; future activation business logic owns the evolving completeness rules.
+- `status` is `DRAFT`, `ACTIVE`, or `INACTIVE`, stored as `VARCHAR(20)` with no database default. Incomplete configuration may persist in `DRAFT`; the approved activation evaluator derives operational MVP AR/Billing readiness before changing `DRAFT` to `ACTIVE`.
 - `created_at` and `updated_at` are current-row timestamps only. PostgreSQL supplies insert defaults, the application owns later `updated_at` changes, and no update trigger is used.
 
 **Relationships**
@@ -600,7 +603,7 @@ The earlier direct `pan`, `cin`, and `llpin` Company columns are REPLACED in the
 - CHECK optional `business_nature IN ('SERVICES', 'GOODS', 'BOTH')`.
 - CHECK `status IN ('DRAFT', 'ACTIVE', 'INACTIVE')`; there is no status default.
 - INDEX (`tenant_id`, `organisation_id`) supports normal grouping lookup and the approved Tenant/Organisation relationship. Do not add status, legal-name, contact, or other speculative indexes.
-- The database does not encode the full activation-readiness workflow. Before activation, Company business logic must require at least country, compatible Entity Type, valid IANA time zone, valid Base Currency, Business Nature, Registered Office, and other configuration owned elsewhere.
+- The database does not encode or store the derived activation-readiness result. Company business logic requires the approved identity/legal identifiers, Registered Office, fiscal/current FY, GST/Location, business-nature catalogue, Payment Term, billing Bank Account, PI/TI/CN/DN numbering, and Company-wide presentation configuration before activation. Accounting/CoA, Cost Centers, email, reminders, Team membership, LUT, and FX are not universal activation blockers.
 - Do not store PAN, CIN, LLPIN, GSTIN, Registered Office/other addresses, Bank Accounts, Financial Year instances, LUTs, HSN/SAC, CoA hierarchy, GL balances, numbering sequences, GST-registration State, or GST-registration-specific registered legal name directly on Company.
 - Company branding remains Company configuration, but no blob/path column is invented without the approved file-storage pattern.
 
@@ -6789,6 +6792,7 @@ Open decisions before downstream schema freeze are:
 
 | Date | Flow | Old table / design | Action | New table / design | Reason |
 |---|---|---|---|---|---|
+| 2026-09-29 | Company Legal Identifier Foundation and Activation | Generic identifier tables were approved but absent, and Identifier Type jurisdiction representation remained open | RESOLVE / IMPLEMENT | `core.company_identifier_types.country_code` FK to `core.countries.code`; `core.company_identifiers`; `core.entity_type_identifier_rules`; derived Company readiness | Migration 0034 implements only the three identifier tables with restrictive relationships and no seed matrix. PAN is a universal India-MVP activation requirement; CIN/LLPIN and other identifiers remain driven by REQUIRED Entity Type rules. Readiness remains derived and stores no checklist flags; Audit Trail remains deferred for separate design after the Twenty study |
 | 2026-09-29 | Catalogue Base GST Nature | `service_types.tax_treatment_id` / `skus.tax_treatment_id` implied a complete transaction treatment and selected GST rates were mandatory for every item | SUPERSEDE / IMPLEMENT | `base_tax_treatment_id` on Service Type/SKU plus conditional nullable `selected_tax_rate_id` | Catalogue items store only TAXABLE/NIL_RATED/EXEMPT/NON_GST Base GST Nature. TAXABLE requires an eligible rate, NIL_RATED requires eligible 0%, and EXEMPT/NON_GST require NULL. ZERO_RATED remains a transaction-context result for future Billing resolution, not a catalogue nature |
 | 2026-09-22 | Company Billing Document Template and Branding | Company/document-type template rows and required `show_*` values permitted multiple current selections per Company; branding-current cardinality was unresolved | SUPERSEDE / IMPLEMENT | Company-wide versioned `company_document_templates` selection plus immutable versioned `company_document_branding` | Migration 0027 makes current selection independent of PI/TI/CN/DN, enforces at most one ACTIVE selection and branding row per Company, preserves/retire existing history without guessing a winner, retains legacy `document_type` and `show_*` columns only as nullable non-governing data, and keeps same-Company stored-file/branding integrity |
 | 2026-09-22 | Company Location Address History and Lifecycle | Approved version concept was not implemented; current address PATCH was destructive and inactive Locations remained mutable in assignment paths | FINALIZE / IMPLEMENT | `core.company_location_versions`; atomic current projection/version updates; terminal Location inactivation | Migration 0026 uses the existing Country/Subdivision representation, restrictive FKs, inclusive non-overlapping DATE ranges, one open version, deterministic creation-date backfill, and stable Location identity. MVP edits are immediately effective; future/backdated workflows remain excluded, and inactive Locations remain readable but cannot be reactivated or mutated |

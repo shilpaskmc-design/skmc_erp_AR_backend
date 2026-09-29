@@ -1,0 +1,1 @@
+"""Derived Company activation readiness."""

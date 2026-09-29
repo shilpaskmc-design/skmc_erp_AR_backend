@@ -19,6 +19,9 @@ from alembic import context
 from alembic.ddl.postgresql import PostgresqlImpl
 from skmc_erp.config import get_settings
 from skmc_erp.core.company import model as company_model  # noqa: F401
+from skmc_erp.core.company_identifier import (  # noqa: F401
+    model as company_identifier_model,
+)
 from skmc_erp.core.cost_center import model as cost_center_model  # noqa: F401
 from skmc_erp.core.company_location import model as company_location_model  # noqa: F401
 from skmc_erp.core.accounting import model as accounting_model  # noqa: F401

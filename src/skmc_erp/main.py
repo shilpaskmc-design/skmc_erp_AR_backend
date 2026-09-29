@@ -4,6 +4,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from skmc_erp.ar.catalogue.router import router as catalogue_router
+from skmc_erp.ar.company_readiness.router import (
+    router as company_readiness_router,
+)
 from skmc_erp.ar.currency.router import router as ar_currency_router
 from skmc_erp.ar.delivery.router import router as delivery_router
 from skmc_erp.ar.document_presentation.router import (
@@ -49,6 +52,7 @@ app = FastAPI(
 )
 
 app.include_router(company_router)
+app.include_router(company_readiness_router)
 app.include_router(company_import_router)
 app.include_router(cost_center_router)
 app.include_router(company_location_router)
