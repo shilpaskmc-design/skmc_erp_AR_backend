@@ -146,9 +146,13 @@ Recurring billing originates from Sales Order or contract configuration: **Sales
 
 ### Customer Management
 
-- Supports customer onboarding and maintenance of existing customers.
-- Supports Primary, Billing, Finance/Payment Follow-Up, and Escalation contact roles.
-- Allows one contact to serve multiple roles or one contact/email to serve all purposes.
+- Supports Company-specific Customer onboarding, material amendments, and maintenance of existing customers.
+- Keeps common/Party-like legal identity, GST, Location, Contact, and endpoint concepts physically Customer-owned for MVP while separating Customer/AR-specific terms and communication purposes. No shared Party/Vendor/Contact master is introduced yet.
+- Supports an optional external Customer Organisation without confusing it with the Tenant's grouping of seller Companies.
+- Treats Customer Locations as reusable physical sites; Bill-To and Ship-To are selected per Sales Order/invoice and finalized documents snapshot the chosen addresses.
+- Separates Contact identity, Contact Details, Contact roles, and explicit Contact-purpose assignments. A Primary role does not automatically make a Contact Detail an invoice recipient.
+- Allows one optional Customer default Payment Term/credit period with fallback to the Company default; Credit Limit is deferred and Receivable GL remains Company-level.
+- Uses a controlled Customer onboarding/amendment flow backed by one authoritative JSONB Draft, immutable exact request-payload snapshots, and append-only actions. Approved Customer state remains relational; Customer Locations use stable identity plus effective-dated versions. Customer Code is Company-prefix plus Company-scoped non-resetting sequence allocated on successful new-Customer publication. Post-approval Contact/GST-mapping change control and Customer reactivation remain REVIEW/OPEN.
 
 ### Sales Order / Commercial Setup
 
@@ -261,7 +265,7 @@ Recurring billing originates from Sales Order or contract configuration: **Sales
 |---|---|
 | Included in current design | Core company/legal setup; locations; GST registrations; AR LUT use; fiscal configuration; AR numbering/catalogues; reporting dimensions; currencies/exchange rates; bank accounts; tax; Company Account Hierarchies/Groups and stable GL Accounts; effective Revenue and Tax GL mappings; default Receivable GL; direct Bank GL association; document presentation; customers; sales orders; billing; approval; delivery; payments/allocation; receivables; reminders; reporting; audit; authentication/authorization. |
 | Deferred | Department, Project, Region, arbitrary Company-defined or otherwise broader custom cost-centre dimensions; percentage-based allocation across cost centres; Organisation-level configuration inheritance; a full template-builder system; and an advanced approval workflow builder. |
-| Still to be detailed | Publication and correction authority for controlled Tax Types, Tax Rates, Tax Treatments and statutory codes/rates; accounting classifications; CoA import/export rules; historical reclassification entries; detailed tax calculation conditions; customer contact model; recurring billing scheduler rules; Credit Note rules; Payment Register/write-off rules; reminder automation; template customization depth; and the final reporting/export catalogue. |
+| Still to be detailed | Publication and correction authority for controlled Tax Types, Tax Rates, Tax Treatments and statutory codes/rates; accounting classifications; CoA import/export rules; historical reclassification entries; detailed tax calculation conditions; Customer post-approval Contact/GST-mapping change control; Customer delivery/reminder precedence and Contact Detail verification; Customer Code configuration validation/readiness details; inactive Customer reactivation; recurring billing scheduler rules; Credit Note rules; Payment Register/write-off rules; reminder automation; template customization depth; and the final reporting/export catalogue. |
 
 Deferred or still-to-be-detailed items are not considered permanently out of scope.
 
@@ -280,7 +284,7 @@ Deferred or still-to-be-detailed items are not considered permanently out of sco
 - Full Accounting posting journals, reconciliation, Inter-Unit clearing, and any future starter Chart-of-Accounts template engine.
 - Exact exchange-rate conversion and rate-selection behavior between billing, receipt, base, and reporting purposes.
 - Team master and membership ownership beyond current AR reporting use.
-- Detailed tax conditions, including TDS amount override, TCS thresholds/exemptions/calculation, customer contact model, and the potential use of exchange rates for Receipt purposes.
+- Detailed tax conditions, including TDS amount override and TCS thresholds/exemptions/calculation; Customer Class A/B/C and post-approval Contact/GST-mapping change control, shared legal-identifier/geography/document-type alignment, delivery/reminder precedence, Contact Detail verification, Customer Code validation/readiness details, and inactive Customer reactivation; and the potential use of exchange rates for Receipt purposes.
 
 ## 13. Documentation Roadmap
 

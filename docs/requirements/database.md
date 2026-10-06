@@ -4067,17 +4067,82 @@ Every downstream table below is a **review candidate before schema implementatio
 The design uses the following current directions:
 
 - Customer, Sales Order, AR Document, Receipt, and Reminder data stays Tenant-scoped and Company-scoped where the business transaction requires a seller Company.
-- Customer ownership across a Tenant versus one Company and the hard-block uniqueness boundary for PAN/GSTIN remain **TBD / REVIEW**. The schema must not assert global uniqueness before that decision.
+- Customer is Company-specific. Approved/current PAN/GSTIN uniqueness is within the owning Company. Temporary duplicate Drafts may exist; Submit checks live/applicable pending requests and publication checks again. Exact concurrency enforcement remains for backend/database planning; the schema must not assert global/Tenant-wide uniqueness.
 - Finalized AR documents hold structured transaction-time seller, customer, address, tax, currency, payment-term, bank, and line snapshots. They do not depend on current master values for historical rendering.
 - PI, TI, CN, and DN use one document aggregate, but type-specific eligibility, balance, conversion, and correction rules remain explicit and unresolved rules remain **REVIEW**.
-- Human approval records the submitted revision and each decision. This is not a generic workflow engine.
+- Human approval preserves the exact decision target and decision evidence in aggregate-specific persistence. Customer uses immutable JSONB request snapshots and actions; other aggregates retain their separately governed contracts. This is not a generic workflow engine.
 - Final numbers are consumed only in the successful approval/finalization transaction and are never reused.
 - Valid LUT is required at finalization for the current without-payment routes `EXPWOP` and `SEZWOP`. `EXPWP` and `SEZWP` are not blocked solely for missing LUT.
 - Normal users cannot edit or post in a locked/restricted historical period. Any policy-permitted Finance/Admin/Authority exception requires a reason and complete audit. A Company may later disable that exception. No accounting period-closing engine is added here, and Financial Year, Period Closing, and Period Lock remain distinct.
 - Receipt cash stays separate from TDS and other non-cash settlement. Advanced TDS/TCS threshold and cumulative engines are outside this MVP design.
 - Raw `storage_key`, `file_hash`, `pod_storage_key`, or `artifact_storage_key` fields shown in downstream ADD/REVIEW/DEFER candidates are legacy placeholders, not an approved parallel file-identity design. When each owning table is reviewed, it must use an explicit typed relationship to canonical `stored_files` metadata where a persisted object is required. This note does not freeze those consumer relationships or redesign their business tables.
 
-# 15. Customer Onboarding Tables
+# 15. Customer Onboarding Tables — Current 14-Table Working Design
+
+## 15.0 Current status — 2026-10-06
+
+**Status: CURRENT WORKING DESIGN / PROPOSED FOR FREEZE; no migration or implementation is approved.**
+
+The canonical physical-review artifact is [Customer Onboarding and Customer Master Database Design](../CUSTOMER_ONBOARDING_ERD.md), using the [Customer Onboarding Architecture and Decision Baseline](../architecture/customer_onboarding_decision_baseline.md). [Customer Onboarding Workflow Persistence Options](../CUSTOMER_ONBOARDING_WORKFLOW_OPTIONS.md) is retained only as a superseded historical alternatives record.
+
+### Current working 14-table set
+
+Eleven tables form the approved/current operational Customer Master and three tables form Customer request/approval/history persistence:
+
+| Table | Classification | Current responsibility |
+|---|---|---|
+| `customer_organisations` | `CURRENT WORKING DESIGN` | Optional Company-specific external Customer grouping |
+| `customers` | `CURRENT WORKING DESIGN` | Current approved Company-specific Customer root |
+| `customer_identifiers` | `CURRENT WORKING DESIGN` | Non-GST legal/statutory identifiers |
+| `customer_gst_registrations` | `CURRENT WORKING DESIGN` | Customer GST registrations |
+| `customer_locations` | `CURRENT WORKING DESIGN` | Stable Location identity/code only |
+| `customer_location_versions` | `CURRENT WORKING DESIGN` | Effective Location name/address/GST context |
+| `customer_documents` | `CURRENT WORKING DESIGN` | Supporting-file links through `stored_files` |
+| `customer_contacts` | `CURRENT WORKING DESIGN` | Person/department/general Contact identity |
+| `customer_contact_details` | `CURRENT WORKING DESIGN` | Email/phone/mobile/WhatsApp reachability |
+| `customer_contact_roles` | `CURRENT WORKING DESIGN` | Contact business roles |
+| `customer_contact_purposes` | `CURRENT WORKING DESIGN` | Why a Contact Detail may be used |
+| `customer_requests` | `CURRENT WORKING DESIGN` | Approval/change case and authoritative JSONB Draft |
+| `customer_request_snapshots` | `CURRENT WORKING DESIGN` | Immutable submitted/Authority-approved JSONB payload |
+| `customer_request_actions` | `CURRENT WORKING DESIGN` | Append-only workflow journey |
+
+The proposed `customers` row contains only current approved operational data. Customer Code is system-generated during successful `NEW_CUSTOMER` publication from Company prefix plus a Company-scoped non-resetting sequence. `default_payment_term_id` is the Customer default credit period, not an override record: Company default -> Customer default when configured -> transaction prefill -> authorized transaction-level change.
+
+`customer_identifiers` stores `identifier_value` and `normalized_value` in the same row and references a shared legal-identifier type. GSTIN remains in `customer_gst_registrations`. The existing `company_identifier_types` reference should be reviewed for generic/shared naming such as `legal_identifier_types`; no rename or migration is authorized.
+
+`customer_locations` stores stable identity/code/lifecycle only. `customer_location_versions` stores the effective name, complete address, geography, same-Customer GST association, registered-address designation, and validity period. `customer_documents` references `stored_files` and does not duplicate storage metadata.
+
+### Selected Customer workflow persistence
+
+`customer_requests` contains typed scope/control columns and one authoritative editable `draft_data JSONB`. Submit/Resubmit creates an immutable `customer_request_snapshots.submitted_data JSONB` row. `customer_request_actions` stores append-only transitions, actors, times, and remarks. Authority edit-and-approve preserves the Maker snapshot and a derived `AUTHORITY_APPROVED` snapshot.
+
+The earlier three alternatives and their typed revision children/submission-decision structures are superseded. Exact history means the exact request payload: complete for `NEW_CUSTOMER` where applicable, and delta-shaped for amendment requests. No separate Draft table or `payload_schema_version` is introduced now.
+
+### Other Customer concepts
+
+| Concept | Classification | Boundary |
+|---|---|---|
+| `customer_delivery_settings` | `REVIEW` | Recipient/override precedence unresolved |
+| `customer_reminder_settings` | `REVIEW` | Merge/replace and recipient behavior unresolved |
+| Customer Code configuration details | `REVIEW` | Prefix validation, padding overflow, activation/readiness gate, physical counter/locking |
+| Customer reactivation/re-onboarding | `OPEN` | Lifecycle and identifier/code reuse unresolved |
+| Endpoint verification/WhatsApp persistence | `REVIEW` | No verification design approved |
+| Post-approval Contact and GST-to-Location change control | `REVIEW` | Approval request versus direct authorized edit/audit unresolved |
+| Class A/B/C change-control model | `REVIEW` | Do not add policy/configuration tables yet |
+| Supporting-document matrix/non-India rules | `OPEN / REVIEW` | Readiness requirements unresolved |
+| Credit Limit | `DEFERRED` | No current Customer table/column |
+| `industries` | `DEFERRED` | No approved Customer requirement |
+
+Approved/current legal identifiers and GSTINs require Company-scoped database uniqueness. Temporary duplicate Drafts may exist; Submit hard-validates applicable live/pending requests and approval/publish validates again. `customer_identifier_claims` is not used. Transactional concurrency handling is a later implementation invariant.
+
+The proposed design is documentation only. No table, column, key, index, migration, or API contract is approved for implementation by this section.
+
+## 15.Z Superseded pre-reconciliation sketches
+
+The detailed blocks below are retained only as historical comparison. **Every `ADD` label, column list, “Current decision,” flow, direct `customers.pan` assumption, raw document-storage field, and approval/revision statement below is superseded by Section 15.0 and must not be used as a migration contract or current table catalogue.**
+
+<details>
+<summary>Show superseded Customer sketches</summary>
 
 ## `customer_organisations`
 
@@ -4125,7 +4190,7 @@ The optional grouping could be omitted safely only if the product drops customer
 
 ### Current decision
 
-Propose the table for the optional external grouping. The exact business meaning of customer Organisation and the Customer Tenant/Company ownership boundary remain **REVIEW** before constraints are frozen.
+Propose the table for an optional external grouping of separately billable Customer legal entities. A Customer may be standalone. Customer Organisation is distinct from seller-side `organisations`, has no MVP inheritance/shared-credit behavior, and cannot cross the Tenant boundary. Customer ownership itself is Company-specific; exact physical constraints remain for the next ERD review.
 
 ### Flow
 
@@ -4148,9 +4213,9 @@ The stable legal AR party identity called Customer or Client in the product. Loc
 ```text
 id UUID PK
 tenant_id UUID FK -> tenants
-owning_company_id UUID nullable FK -> companies [scope decision pending]
+owning_company_id UUID FK -> companies [business ownership confirmed; exact physical contract pending ERD]
 customer_organisation_id UUID nullable FK -> customer_organisations
-customer_code nullable until approval, then stable
+customer_code [stable after allocation; allocation mode/format/timing OPEN]
 legal_name
 display_name nullable
 legal_entity_type nullable
@@ -4163,19 +4228,19 @@ approved_at nullable
 created_by, created_at, updated_by, updated_at
 ```
 
-`owning_company_id` is intentionally unresolved: keep it only if Customer identity is confirmed as Company-specific. `customer_code` is assigned through the approved onboarding flow and remains stable after normal master edits.
+Company-specific ownership is confirmed. The next ERD must enforce one owning Company without treating Tenant scope as sufficient authorization. Customer Code must remain stable after allocation, but its generation/manual-entry policy, format, counter scope, and allocation timing are OPEN. The candidate `current_revision_no` means only the latest Customer aggregate revision pointer; it is not a name version, Location effective version, transaction snapshot, or audit-event sequence, and its persistence remains for ERD review.
 
 ### Relationships
 
 - Tenant 1:N Customers.
 - Customer Organisation 1:N Customers, optional.
 - Customer 1:N Locations, GST Registrations, Contacts, Documents, approval submissions, Sales Orders, AR Documents, and Receipts.
-- Company ownership is **TBD / REVIEW**; transaction tables still carry their explicit seller `company_id`.
+- Each Customer belongs to one seller Company; transaction tables still carry their explicit seller `company_id` and must match the Customer's owning Company.
 
 ### Why do we need this table?
 
 1. Sales Orders, invoices, receipts, allocations, and collections need one stable customer key.
-2. Client Code must remain stable even when the legal/display name or contacts change.
+2. Stable Customer identity is required even when legal/display name or contacts change; an allocated Customer Code must also remain stable, but its allocation policy is OPEN.
 3. Onboarding status has a lifecycle independent of any one address or GST registration.
 4. PAN and legal identity support duplicate detection and statutory validation.
 5. Customer-level ageing and payment history require a common party identity across documents.
@@ -4183,15 +4248,21 @@ created_by, created_at, updated_by, updated_at
 
 ### What happens if we remove this table?
 
-Legal identity would be duplicated across Sales Orders, invoices, receipts, and contacts. Updates could split one customer into inconsistent records, and there would be no stable Client Code or onboarding lifecycle.
+Legal identity would be duplicated across Sales Orders, invoices, receipts, and contacts. Updates could split one Customer into inconsistent records, and there would be no stable Customer identity or onboarding lifecycle.
 
 ### Current decision
 
-Replace the legacy `clients` name with `customers` in this proposal for consistent product language. Confirm the Tenant-wide versus Company-specific ownership and PAN/GSTIN uniqueness scope before migration freeze.
+Replace the legacy `clients` name with `customers` in this proposal for consistent product language. Customer identity is Company-specific. Within the owning Company, normalized PAN and GSTIN duplicate control includes drafts and pending amendments. Exact reservation, locking, normalization, and constraint design remains for the next ERD review.
 
 ### Flow
 
-Search Existing Customer → Create/Edit Draft → Submit → Finance decision → Approved Client Code → Sales Order/Billing/Receipt.
+Search Existing Customer -> Create/Edit Draft -> Submit immutable revision -> Finance decision -> approved Customer. Customer Code allocation occurs only after its separate OPEN policy is approved.
+
+## Customer Default Credit-Period Persistence Gap
+
+**Status:** REVIEW — to be designed in the Customer ERD phase
+
+The confirmed business rule requires at most one optional Customer selection of an active Payment Term owned by the same seller Company. If absent, the Company default applies. The next ERD must represent this without introducing an independently editable Customer credit-days value. No column or relationship is approved in this reconciliation pass.
 
 ## `customer_gst_registrations`
 
@@ -4221,7 +4292,7 @@ status
 created_at, updated_at
 ```
 
-`gstin` is normalized for duplicate checking. The exact database uniqueness boundary follows the pending Customer ownership decision rather than assuming global uniqueness.
+`gstin` is normalized for duplicate checking. The confirmed business boundary is uniqueness within the owning seller Company, including drafts and pending amendments; exact database enforcement is reserved for the next ERD.
 
 ### Relationships
 
@@ -4260,7 +4331,7 @@ Customer Draft → GST Registrations → Location association → Approval → B
 
 ### What data is stored
 
-Reusable customer addresses for registered, billing, shipping, branch, or office use. Contacts remain independent, and finalized AR documents copy the actual selected address into structured snapshot columns.
+Reusable Customer physical addresses/sites such as registered offices, branches, offices, or warehouses. Bill-To and Ship-To are transaction selections, not permanent Location roles. Contacts remain independent, and finalized AR documents copy the selected address into structured snapshot columns.
 
 ### Important columns
 
@@ -4278,14 +4349,12 @@ state_code
 postal_code
 country_code
 is_registered_address
-is_billing_address
-is_shipping_address
 is_branch
 status
 created_at, updated_at
 ```
 
-Purpose flags cover the current fixed uses without a separate purpose table. `gst_registration_id` links a location to at most one current Customer GST registration under the proposed MVP relation.
+The earlier Billing/Shipping flags are superseded. `gst_registration_id` may link a Location to a Customer GST registration under the current conceptual relation, but the next ERD must review the full physical contract.
 
 ### Relationships
 
@@ -4296,11 +4365,11 @@ Purpose flags cover the current fixed uses without a separate purpose table. `gs
 
 ### Why do we need this table?
 
-1. One Customer may have several billing, shipping, registered, and branch addresses.
+1. One Customer may have several physical sites and select an applicable approved site as Bill-To or Customer Ship-To per transaction.
 2. Sales Orders need stable selectable bill-to and ship-to IDs.
 3. GST registration association helps validate the customer tax context selected for billing.
 4. Address maintenance should not overwrite the Customer's stable legal identity.
-5. Fixed purpose flags support current selection without a generic location-role engine.
+5. Transaction references express Bill-To/Ship-To use without a generic Location-role engine or permanent Billing/Shipping flags.
 6. Final invoice snapshots can identify the source Location while preserving the exact printed address.
 
 ### What happens if we remove this table?
@@ -4309,7 +4378,7 @@ Addresses would become repeating Customer columns or unvalidated free text on ea
 
 ### Current decision
 
-Propose a non-versioned current master for MVP. `customer_location_versions` stays deferred unless backdated customer-address resolution is separately required beyond document snapshots.
+Propose a stable Customer Location identity and current operational projection. Effective-dated address history is `REVIEW`, not approved: compare the preferred approval-effective behavior with the existing Company Location version model during the next ERD. Final transaction snapshots remain mandatory either way.
 
 ### Flow
 
@@ -4325,7 +4394,7 @@ Customer Draft → Locations → optional GST association → SO bill-to/ship-to
 
 ### What data is stored
 
-People associated with a Customer, including their current communication details. A person is stored once even when they perform several roles, and location assignment is not mandatory.
+Customer-owned Contact identities of type `PERSON`, `DEPARTMENT`, or `GENERAL`. Identity is stored independently from communication endpoints, roles, and AR communication-purpose assignments. Location assignment is not mandatory.
 
 ### Important columns
 
@@ -4333,39 +4402,39 @@ People associated with a Customer, including their current communication details
 id UUID PK
 tenant_id UUID FK -> tenants
 customer_id UUID FK -> customers
-name
-email nullable
-phone nullable
-designation nullable
+contact_type [PERSON / DEPARTMENT / GENERAL]
+type-applicable identity/display fields [physical shape pending ERD]
 status
 created_at, updated_at
 ```
 
-Email and phone are contact data, not the authoritative invoice delivery history; each send request snapshots its resolved recipients.
+Email/phone values do not belong inline in the current conceptual Contact identity. Endpoint persistence, including raw and normalized value, label, endpoint type, phone subtype, and WhatsApp capability, must be designed in the next ERD. Each send request snapshots its resolved recipients.
 
 ### Relationships
 
 - Customer 1:N Contacts.
+- Contact 1:N Communication Endpoints (concept confirmed; physical table not designed in this reconciliation).
 - Contact 1:N Contact Roles.
+- Customer/AR relationship assigns communication purposes to eligible endpoints (concept confirmed; physical table not designed here).
 - Contacts N:M Sales Orders through `sales_order_contacts`.
-- Contacts are referenced during delivery/reminder recipient resolution but are not children of Customer Locations.
+- Explicit AR purpose assignments, not Contact roles alone, participate in delivery/reminder recipient resolution. Contacts are not children of Customer Locations.
 
 ### Why do we need this table?
 
-1. One Customer can have several billing, finance, operational, and escalation contacts.
-2. The same person can serve multiple roles without duplicate Contact rows.
+1. One Customer can have person, department, or general/shared Contact identities.
+2. The same Contact can serve multiple roles without duplicate Contact rows.
 3. Sales Orders can select deal-specific contacts from the Customer master.
-4. Invoice delivery and reminders need current recipient sources before creating immutable send snapshots.
+4. Invoice delivery and reminders need explicitly purpose-assigned endpoints before creating immutable send snapshots.
 5. A Contact can be deactivated without deleting prior delivery evidence.
 6. Keeping Contacts separate prevents repeated name/email columns on Customer and Sales Order.
 
 ### What happens if we remove this table?
 
-People would be duplicated by role or embedded in transactions. Email changes would be hard to maintain, and there would be no reusable recipient identity for SO, delivery, and collections.
+Contact identity would be duplicated by role or embedded in transactions, and there would be no reusable source for SO, delivery, and collections context.
 
 ### Current decision
 
-Propose independent Customer Contacts. Do not require or infer a Location relationship in the MVP schema.
+Propose independent Customer-owned Contact identity without a Location dependency. The current table sketch is incomplete and must be redesigned with separate endpoints and AR purpose assignments in the next ERD; no shared Party Contact master is introduced.
 
 ### Flow
 
@@ -4398,14 +4467,14 @@ UNIQUE (customer_contact_id, role_code)
 
 - Customer Contact 1:N Contact Roles.
 - Customer has role-bearing contacts through its Contact children.
-- Delivery/reminder logic reads roles but snapshots the resulting recipient addresses on runtime requests.
+- Delivery/reminder logic resolves explicit AR communication-purpose assignments and snapshots the resulting endpoint values; a role alone, including `PRIMARY`, is insufficient.
 
 ### Why do we need this table?
 
 1. One person can be both Primary, Billing, Finance, and Escalation contact.
 2. Roles can change without duplicating or replacing the person's identity.
-3. Delivery can resolve Billing/Finance recipients from controlled role codes.
-4. Collections can escalate to a different role without adding columns to `customer_contacts`.
+3. Roles describe the Contact's business relationship and can support user understanding/filtering without being mistaken for send authorization.
+4. Collections may use a Contact with an Escalation role, but an eligible endpoint still needs an explicit `COLLECTION_ESCALATION` purpose assignment.
 5. The unique pair prevents the same role being assigned twice to one Contact.
 6. It avoids multiple boolean role columns that must change whenever a new approved role appears.
 
@@ -4420,6 +4489,17 @@ Replace the legacy `client_roles` concept with a role child of the stable Contac
 ### Flow
 
 Contact creation → assign one or more roles → select SO contacts → resolve delivery/collection recipients.
+
+## Contact Endpoint and AR Communication-Purpose Persistence Gap
+
+**Status:** REVIEW — to be designed in the Customer ERD phase
+
+The confirmed business model requires separate persistence for:
+
+- Contact communication endpoints (`EMAIL`/`PHONE`, label, raw value, normalized value, subtype/capability metadata, status); and
+- Customer/AR communication-purpose assignments (`INVOICE_DELIVERY`, `PAYMENT_REMINDER`, `COLLECTION_ESCALATION`, `GENERAL_COMMUNICATION`) to eligible endpoints.
+
+This reconciliation intentionally does not name tables, choose cardinalities, or define keys/constraints. Contact roles remain separate and must not substitute for purpose assignments. Future AP/Vendor purposes are outside this AR design.
 
 ## `customer_documents`
 
@@ -4527,7 +4607,7 @@ Only the current status would remain. The system would lose what revision was su
 
 ### Current decision
 
-Propose submission records for the current single human approval stage. Exact self-approval/edit-in-review behavior remains **REVIEW**.
+Propose submission records for the current single human Customer approval stage. Customer maker self-approval is prohibited. Standard material correction returns the submission; an elevated edit-and-approve action creates and approves an audited successor revision while preserving the original submission and complete diff/reason. Exact physical authorization and revision-content design remains for the next ERD.
 
 ### Flow
 
@@ -4570,7 +4650,7 @@ reason nullable except mandatory for RETURNED/REJECTED
 3. A Customer can pass through several submissions and decisions without erasing history.
 4. Approval evidence remains distinct from field-change audit evidence.
 5. It can support later multiple decisions while the MVP uses one authorized human stage.
-6. It allows the approved Client Code event to be traced to a specific decision.
+6. If the later Customer Code policy allocates a code during approval, that event can be traced to a specific decision; this table does not decide the OPEN code policy.
 
 ### What happens if we remove this table?
 
@@ -4578,11 +4658,11 @@ Decision actor, time, reason, and submission linkage would be lost or overloaded
 
 ### Current decision
 
-Propose a decision child table; do not add configurable workflow states, transitions, or route-builder tables.
+Propose a decision child table; do not add configurable workflow states, transitions, or route-builder tables. Approval must point to the exact original or Finance-created successor revision actually approved.
 
 ### Flow
 
-Submission → Finance/Authority decision → Approved Client Code or Return/Reject → audit.
+Submission -> Finance/Authority decision -> approve Customer revision or Return/Reject -> audit. Customer Code allocation is conditional on the separate OPEN policy.
 
 ## `customer_delivery_settings`
 
@@ -4594,14 +4674,14 @@ Submission → Finance/Authority decision → Approved Client Code or Return/Rej
 
 ### What data is stored
 
-Optional Customer-level overrides between Company delivery defaults and one document's send intent. Possible values are automatic-send override, recipient-role selection, default CC, and template override; exact override semantics are not frozen.
+Optional Customer-level overrides between Company delivery defaults and one document's send intent. Possible values include automatic-send override, communication-purpose/recipient-resolution override, default CC, and template override; exact override semantics are not frozen. Contact roles alone are not recipient authorization.
 
 ### Important columns
 
 ```text
 customer_id UUID PK/FK -> customers
 automatic_send_override nullable
-recipient_role_codes nullable
+recipient_resolution_override [REVIEW; must use explicit AR purposes rather than role-only selection]
 default_cc nullable
 template_id nullable FK -> company_document_templates
 status
@@ -4620,7 +4700,7 @@ Nullable fields mean “inherit Company configuration,” not false or empty.
 
 1. The documented precedence includes Customer-level delivery behavior.
 2. Some Customers may require manual sending while the Company default is automatic.
-3. Recipient roles or CC defaults may differ by Customer.
+3. Communication-purpose resolution or CC defaults may differ by Customer without treating `PRIMARY`/`BILLING` roles as automatic recipients.
 4. Nullable overrides preserve inheritance rather than duplicating Company values.
 5. Runtime requests still retain the exact resolved send intent after settings change.
 6. Separating optional settings keeps legal Customer identity free from delivery-only columns.
@@ -4655,7 +4735,7 @@ Optional Customer-level reminder override data between Company reminder policy a
 customer_id UUID PK/FK -> customers
 reminders_enabled_override nullable
 reminder_policy_id nullable FK -> reminder_policies
-recipient_role_codes nullable
+recipient_resolution_override [REVIEW; must use explicit AR purposes rather than role-only selection]
 hold_until nullable
 hold_reason nullable
 updated_by, updated_at
@@ -4671,7 +4751,7 @@ updated_by, updated_at
 
 1. Current direction gives Customer control precedence over Company reminder defaults.
 2. A Customer may be placed on reminder hold without changing every open invoice.
-3. Recipient roles may differ for collections communications.
+3. Reminder/collection recipient resolution may differ by Customer but must ultimately resolve explicitly purpose-assigned endpoints.
 4. Nullable values can inherit Company policy without copying its schedule rows.
 5. Runtime occurrences remain stable when Customer settings later change.
 6. A separate optional row avoids adding collections-only controls to every Customer.
@@ -4687,6 +4767,8 @@ Review after reminder override semantics are specified. The current MVP must not
 ### Flow
 
 Company reminder policy → optional Customer override → Invoice control → occurrence planning → runtime stop check.
+
+</details>
 
 # 16. Sales Order / Commercial Tables
 
@@ -4919,7 +5001,7 @@ UNIQUE (sales_order_id, customer_contact_id, role_code)
 2. The same Customer Contact may be used on several orders.
 3. A person's general Customer role may differ from their role on one engagement.
 4. The unique triple prevents duplicate selections.
-5. Billing/delivery preparation can use the approved order contacts as inputs.
+5. Billing/delivery preparation can use approved order contacts as contextual inputs, but actual sending still requires explicit AR communication-purpose resolution.
 6. Repeating contact columns on `sales_orders` would cap the number of contacts and duplicate identities.
 
 ### What happens if we remove this table?
@@ -4928,7 +5010,7 @@ The Sales Order could store only fixed contact columns or infer contacts from cu
 
 ### Current decision
 
-Propose the relation table. It does not duplicate Contact name/email snapshots; delivery requests capture the actual addresses used at send time.
+Propose the relation table for order-specific commercial context. It does not authorize recipient use or duplicate Contact endpoint snapshots; delivery requests resolve explicit AR purposes and capture the actual endpoint values used at send time.
 
 ### Flow
 
@@ -6256,7 +6338,7 @@ Business action/change → commit typed state and audit event atomically where a
 
 ## `customer_location_versions`
 
-**Status:** DEFER
+**Status:** REVIEW
 
 **Owner:** AR Customer
 
@@ -6264,7 +6346,7 @@ Business action/change → commit typed state and audit event atomically where a
 
 ### What data is stored
 
-This legacy candidate would retain effective-dated versions of a Customer Location. Current requirements need current selectable locations and finalized invoice address snapshots, but do not confirm backdated customer-address resolution.
+This candidate would retain effective-dated address versions of a stable Customer Location. The proposed Customer baseline prefers a simple approval-effective change with no future scheduling or arbitrary backdating, but requires explicit comparison with the approved Company Location history model before deciding whether a version table is justified.
 
 ### Important columns
 
@@ -6296,11 +6378,11 @@ Current addresses and finalized document truth remain safe. The lost capability 
 
 ### Current decision
 
-Defer. Do not over-version Customer locations until a requirement beyond finalized-document snapshots is approved.
+Review during the Customer database-design phase. Compare the selected workflow evidence + audit + final transaction snapshots against a narrow Company-Location-style complete-address version model. Do not implement or infer this table until that review is approved.
 
 ### Flow
 
-Future Location change → effective version history → backdated selection; absent from current MVP flow.
+Approved Location change -> possible approval-effective version history -> current selection; exact persistence remains outside the current baseline task.
 
 ## `industries`
 
@@ -6732,10 +6814,10 @@ Future state reference → GST/address/place-of-supply validation; current flow 
 The following rules apply across the downstream candidate tables:
 
 1. Every FK relationship must stay inside the same Tenant. A transaction's `company_id`, selected Company-owned masters, Customer scope, and child rows must be validated together; UUID equality alone is insufficient.
-2. Customer PAN/GSTIN duplicate detection is a hard-block direction, but the uniqueness scope across Tenant, Company, drafts, and establishments remains **TBD / REVIEW**. Do not add a global unique index until that scope is approved.
-3. A submitted Customer, Sales Order, or AR Document revision cannot be materially changed in place. Return/edit creates a new revision and a new submission; decisions always point to the reviewed submission.
+2. Approved/current Customer legal identifiers and GSTINs use Company-scoped database uniqueness; no global/Tenant-wide unique index is added. Draft overlap is allowed; hard validation occurs on Submit and again on approval/publish without `customer_identifier_claims`. Concurrent execution must preserve this invariant in later backend/database design.
+3. Submitted Customer data must not be silently changed after it becomes the decision target. Immutable JSONB Request Snapshots preserve each Maker submission and any derived Authority-approved result; pending data never overwrites operational Customer state before approval.
 4. Final AR Document snapshots are structured header/line columns. Master FKs explain origin but cannot be used to regenerate a historical finalized document from current values.
-5. Final number allocation, document finalization, approved-revision verification, and mandatory audit/delivery intent creation occur in one guarded database transaction. PDF rendering and provider delivery occur asynchronously afterward.
+5. Final number allocation, document finalization, verification of the applicable approved content/evidence, and mandatory audit/delivery intent creation occur in one guarded database transaction. PDF rendering and provider delivery occur asynchronously afterward.
 6. LUT validation is required before finalization for the current without-payment routes `EXPWOP` and `SEZWOP`, using the selected seller GST registration and applicable fiscal period. Missing a required valid LUT blocks finalization. `EXPWP` and `SEZWP` are not blocked solely for missing LUT.
 7. `tcs_check_required` requires an explicit invoice-line TCS applicability decision; it never means “charge TCS automatically.” Threshold, cumulative, exemption, and advanced calculation rules remain later Billing/Tax decisions.
 8. Current TDS settlement is user-section driven: select an applicable section/code, resolve the configured rate, calculate/record TDS, and allow cash plus TDS to settle the receivable. Threshold/cumulative automation is deferred.
@@ -6772,9 +6854,15 @@ backend validation enforce the applicable rules.
 
 Open decisions before downstream schema freeze are:
 
-- Customer Tenant-wide versus Company-specific identity and PAN/GSTIN uniqueness boundary.
+- Customer Code prefix validation, padding overflow, configuration readiness gate, and exact counter/locking/idempotency mechanics. System generation, Company scope, start at 1, no automatic reset, and new-Customer publication timing are selected.
+- Inactive Customer reactivation on the same identity/code versus a separately controlled re-onboarding/replacement path.
+- Whether post-approval Contact changes require an approval request or direct authorized edit plus audit.
+- Whether GST-to-Location mapping changes require approval.
+- Whether the Class A/B/C change-control model is adopted and how Class B fields are classified; no policy/configuration tables are added now.
+- Whether the implemented Company-named identifier-type reference should be generalized for shared Company/Customer use.
+- Physical geography FK naming/alignment and the shared reference target for `customer_documents.document_type_id`.
 - FX source, date, override, and Receipt cross-currency rules.
-- Finance edit/self-approval behavior and invalidation when material context changes.
+- Finance edit/self-approval behavior for Sales Orders and AR Documents. Customer maker self-approval is prohibited; Customer elevated edit-and-approve preserves the Maker snapshot and a derived exact Authority-approved snapshot with action/reason evidence.
 - PI/TI/CN/DN balance, conversion, correction, cancellation, and settlement eligibility rules.
 - Customer delivery/reminder override semantics.
 - Whether automated recurring/milestone generation is part of the enabled MVP.
@@ -6792,6 +6880,10 @@ Open decisions before downstream schema freeze are:
 
 | Date | Flow | Old table / design | Action | New table / design | Reason |
 |---|---|---|---|---|---|
+| 2026-10-06 | Customer 14-table Master and JSONB request history | Ten operational Customer tables left Location versioning, workflow persistence, identifier claims, and Customer Code unresolved; Contact table names were technical | PROPOSE FOR FREEZE / SUPERSEDE OPTIONS | Eleven operational tables with stable/effective-dated Locations and friendly Contact names plus `customer_requests`, immutable JSONB `customer_request_snapshots`, and append-only `customer_request_actions`; Submit/publish duplicate validation without claims; Company-configured system Customer Code | Documentation only. Preserve exact submitted request payloads without typed revision children, keep pending data outside operational tables, and leave Contact/GST-mapping control, reactivation, delivery resolution, reference alignment, and exact physical constraints under REVIEW/OPEN |
+| 2026-10-03 | Customer operational master and workflow reconciliation | One 15-table proposal finalized typed Customer revisions, revision children, approval submissions/decisions, revision-only documents, and identifier claims; `customers` carried direct PAN and revision pointers | PROPOSE / SUPERSEDE PHYSICAL ASSUMPTIONS / MOVE TO REVIEW | Ten-table operational Customer master with generic `customer_identifiers`, complete Location addresses, operational `customer_documents` using `stored_files`; three mutually exclusive workflow options and optional identifier claims under REVIEW | Do not choose an exact-history or open-draft reservation policy through schema convenience. Clarify Customer default Payment Term semantics and keep implementation prohibited until workflow/history questions are answered |
+| 2026-10-03 | Customer Onboarding ERD and detailed database design | Nine legacy Customer `ADD` sketches mixed current/draft state, lacked typed material revisions, identifier reservations, separate communication endpoints/purposes, and revision-specific file evidence | PROPOSE / MODIFY / REPLACE / ADD | 15-table proposed Customer core in `CUSTOMER_ONBOARDING_ERD.md`; optional `customer_location_versions` remains REVIEW | Separate live projections from immutable typed revisions, publish approvals atomically, hard-block Company-scoped PAN/GSTIN duplicates across drafts/current rows, reuse Payment Terms/stored files/audit, and avoid Party/generic workflow/JSON overengineering. Documentation only; Customer Code/reactivation/location-history/delivery-verification decisions remain unresolved |
+| 2026-10-03 | Customer Onboarding pre-ERD reconciliation | Customer ownership/uniqueness were unresolved; Locations carried Billing/Shipping flags; Contacts embedded email/phone and roles implied recipient use; Customer credit-period and communication-purpose persistence were absent; Customer Location versions were DEFER | PROPOSE / SUPERSEDE ASSUMPTIONS / REVIEW PHYSICAL DESIGN | Company-specific Customer baseline; Company-scoped PAN/GSTIN duplicate control; transaction-selected Bill-To/Ship-To; separate Contact identity/endpoints/roles/AR purposes; one optional Customer Payment Term with Company fallback; `customer_location_versions` moved to REVIEW | Documentation/design only. Existing Customer `ADD` sketches remain pre-ERD candidates and are not approved schema. Customer Code, reactivation, Location version persistence, delivery/reminder override semantics, and all physical table/constraint/API choices remain open/review for the next phase |
 | 2026-09-29 | Company Legal Identifier Foundation and Activation | Generic identifier tables were approved but absent, and Identifier Type jurisdiction representation remained open | RESOLVE / IMPLEMENT | `core.company_identifier_types.country_code` FK to `core.countries.code`; `core.company_identifiers`; `core.entity_type_identifier_rules`; derived Company readiness | Migration 0034 implements only the three identifier tables with restrictive relationships and no seed matrix. PAN is a universal India-MVP activation requirement; CIN/LLPIN and other identifiers remain driven by REQUIRED Entity Type rules. Readiness remains derived and stores no checklist flags; Audit Trail remains deferred for separate design after the Twenty study |
 | 2026-09-29 | Catalogue Base GST Nature | `service_types.tax_treatment_id` / `skus.tax_treatment_id` implied a complete transaction treatment and selected GST rates were mandatory for every item | SUPERSEDE / IMPLEMENT | `base_tax_treatment_id` on Service Type/SKU plus conditional nullable `selected_tax_rate_id` | Catalogue items store only TAXABLE/NIL_RATED/EXEMPT/NON_GST Base GST Nature. TAXABLE requires an eligible rate, NIL_RATED requires eligible 0%, and EXEMPT/NON_GST require NULL. ZERO_RATED remains a transaction-context result for future Billing resolution, not a catalogue nature |
 | 2026-09-22 | Company Billing Document Template and Branding | Company/document-type template rows and required `show_*` values permitted multiple current selections per Company; branding-current cardinality was unresolved | SUPERSEDE / IMPLEMENT | Company-wide versioned `company_document_templates` selection plus immutable versioned `company_document_branding` | Migration 0027 makes current selection independent of PI/TI/CN/DN, enforces at most one ACTIVE selection and branding row per Company, preserves/retire existing history without guessing a winner, retains legacy `document_type` and `show_*` columns only as nullable non-governing data, and keeps same-Company stored-file/branding integrity |
@@ -6931,28 +7023,31 @@ Open decisions before downstream schema freeze are:
 
 Sections 1–13 remain the source of truth. They contain **59 KEEP tables**, **4 REVIEW/conditional tables**, and **1 DEFERRED accounting-classification table**. This includes the global Country and Country Subdivision masters, three generic Company legal-identifier tables, KEEP `company_location_versions`, `gst_registration_types`, two controlled tax masters, generalized statutory-code tables, separate Team reporting-bucket and actual-Team identities, eight approved Accounting Setup tables, and shared `stored_files` metadata; Company/GST profile-version concepts remain REVIEW and `account_types` is DEFERRED.
 
-With the **32 downstream ADD** proposals, the conditional physical catalogue would total **91 tables** only if every ADD table is later approved. Renamed/replaced/deferred legacy structures are dispositions, not additional physical tables.
+With the **37 downstream ADD** proposals, the conditional fixed physical catalogue would total **96 tables** only if every ADD table is later approved. The selected 14-table Customer working design is included in that proposal arithmetic. Renamed/replaced/deferred legacy structures are dispositions, not additional physical tables.
 
 ## Downstream current review candidates
 
-### ADD — 32 tables
+### ADD — 37 tables
 
-- Customer: `customer_organisations`, `customers`, `customer_gst_registrations`, `customer_locations`, `customer_contacts`, `customer_contact_roles`, `customer_documents`, `customer_approval_submissions`, `customer_approval_decisions` — 9.
+- Customer operational/request working design: `customer_organisations`, `customers`, `customer_identifiers`, `customer_gst_registrations`, `customer_locations`, `customer_location_versions`, `customer_documents`, `customer_contacts`, `customer_contact_details`, `customer_contact_roles`, `customer_contact_purposes`, `customer_requests`, `customer_request_snapshots`, `customer_request_actions` — 14 proposed tables.
 - Sales Order: `sales_orders`, `sales_order_service_lines`, `sales_order_goods_lines`, `sales_order_contacts`, `sales_order_documents`, `sales_order_approval_submissions`, `sales_order_approval_decisions` — 7.
 - Billing/Approval/Delivery/Compliance: `ar_documents`, `ar_document_lines`, `ar_document_relations`, `gstr1_filing_batches`, `gstr1_filing_batch_documents`, `document_approval_submissions`, `document_approval_decisions`, `document_artifacts`, `invoice_delivery_requests`, `invoice_delivery_attempts` — 10.
 - Receipt/Collections: `receipts`, `payment_allocations`, `settlement_adjustments`, `allocation_transfers`, `reminder_occurrences` — 5.
 - Shared Audit: `audit_events` — 1.
 
-### REVIEW — 4 downstream tables
+### REVIEW — 4 fixed downstream tables
 
 - `customer_delivery_settings`
 - `customer_reminder_settings`
 - `sales_order_billing_schedules`
 - `ar_document_dispatch_details`
 
-### DEFER — 8 Company Configuration/downstream/legacy candidates
+The Customer Request + immutable JSONB Request Snapshot + append-only Action design is included in the ADD proposal count. The earlier three workflow alternatives and `customer_identifier_claims` are superseded, not REVIEW tables.
 
-- `customer_location_versions`
+The possible shared-reference rename from `company_identifier_types` to a generic legal-identifier type is also a `REVIEW` modification, not an additional physical table.
+
+### DEFER — 7 Company Configuration/downstream/legacy candidates
+
 - `industries`
 - `sales_order_milestones`
 - `report_runs`
@@ -6965,16 +7060,16 @@ With the **32 downstream ADD** proposals, the conditional physical catalogue wou
 
 - `receivables` — use a derived receivable position; it is not a current physical source table.
 
-The change log also records **33 legacy table/design entries with MERGE, REMOVE, or REPLACE actions**, including replaced Company-identifier, tax, and accounting structures, into current aggregates or reviewed Company Configuration tables. Renames, moves, and reshaped replacements are traceability actions and are not additional current tables.
+The change log records **34 historical table/design entries with MERGE, REMOVE, or REPLACE actions**. The older entry that replaced `customer_documents` is itself superseded by the current operational-document proposal but remains historical traceability. These actions are not additional current tables.
 
 ## Combined counts for the whole document
 
 | Decision | Count | Included as current physical tables? |
 |---|---:|---|
 | KEEP | 59 | Yes; reviewed Company Configuration and shared metadata, including Country/Subdivision references, generic Company identifiers, Location address versions, GST Registration Types, separate Cost Center Team and actual Team identities, generalized tax/statutory references, eight Accounting Setup tables, and `stored_files` |
-| ADD | 32 | Proposed downstream candidates; implement only after table-by-table approval |
-| REVIEW | 8 | No automatic implementation: 4 Company Configuration + 4 downstream |
-| DEFER | 8 | No; includes deferred `account_types` plus 7 existing downstream/legacy candidates |
-| REMOVE / MERGED / REPLACED | 33 | No; legacy table/design change-log entries, including replaced Company-identifier/tax/accounting structures and the standalone `receivables` removal |
+| ADD | 37 | Proposed downstream candidates, including the 14-table Customer working design; implement only after review/freeze |
+| REVIEW | 8 fixed | No automatic implementation: 4 Company Configuration + 4 downstream |
+| DEFER | 7 | No; includes deferred `account_types` plus 6 existing downstream/legacy candidates |
+| REMOVE / MERGED / REPLACED | 34 historical entries | No; historical traceability only, including the now-superseded prior `customer_documents` replacement |
 
-The proposed current physical catalogue is therefore **91 tables only if all 32 downstream ADD candidates are approved**. The 8 REVIEW and 8 DEFER entries are not part of that total, and the 33 removed/merged/replaced legacy change-log entries are never counted as current tables.
+The proposed fixed physical catalogue is therefore **96 tables only if all 37 downstream ADD candidates are approved**. The 8 fixed REVIEW entries, 7 DEFER entries, and 34 historical removed/merged/replaced entries are outside that total. The 14-table Customer design remains `CURRENT WORKING DESIGN / PROPOSED FOR FREEZE`, not implementation approval.

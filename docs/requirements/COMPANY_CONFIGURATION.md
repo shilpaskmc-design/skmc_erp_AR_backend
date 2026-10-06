@@ -99,6 +99,8 @@ Company administrators can maintain the identity and contact information of the 
 | Base Time Zone | Supplies Company-local time for scheduled behaviour. | MVP |
 | Company Email, Phone, Website | Maintains optional Company contact channels; these do not block Company activation. | CONFIGURABLE |
 | Company Logo | Reusable Company identity asset. | CONFIGURABLE |
+
+The implemented reference name `company_identifier_types` currently supports this Company flow. Customer Onboarding now needs the same jurisdiction-specific type concept for Customer identifier values. Whether the reference is renamed/generalized to `legal_identifier_types` is a cross-domain database-design `REVIEW` only; it does not change the approved Company identifier behavior or authorize a migration.
 | Company Status | Supports `DRAFT`, `ACTIVE`, and `INACTIVE`; incomplete setup may persist while Draft. | MVP |
 
 **Requirement — SYSTEM RULE**
@@ -349,6 +351,8 @@ Numbering may vary by Company, fiscal period, seller GST registration, and paral
 
 A Company can maintain reusable `IMMEDIATE` and `NET_DAYS` Payment Terms, including at most one active default. Immediate terms use zero credit days; Net Days terms use a positive number of credit days.
 
+Customer Onboarding may select one active same-Company Payment Term as the Customer's Default Credit Period. If no Customer term is selected, the active Company default is the fallback. Customer does not maintain a second independently editable credit-days value. Transaction-specific selection/override and final due-date snapshots belong to Sales Order/Billing; see [Customer Onboarding Requirements](customer_onboarding.md).
+
 **Requirement — SYSTEM RULE**
 
 - A selected Payment Term, credit-days value and derived due date are preserved by the owning Sales Order/invoice according to its snapshot rules.
@@ -356,6 +360,26 @@ A Company can maintain reusable `IMMEDIATE` and `NET_DAYS` Payment Terms, includ
 - Changing or inactivating current Payment Term configuration must not recalculate previously approved or finalized transactions.
 - Historically used terms are retained rather than hard-deleted.
 - Installment schedules are outside the current Payment Term configuration.
+
+## 10B. Customer Code Configuration
+
+**Requirement — CURRENT WORKING DESIGN / PROPOSED FOR FREEZE**
+
+Customer Code is generated during successful `NEW_CUSTOMER` approval/publication from Company-owned configuration:
+
+```text
+Customer Code = configured prefix + Company-scoped sequential number
+```
+
+- The Company chooses the prefix and numeric padding/digit length.
+- The sequence starts at 1, is scoped independently per Company, and does not reset automatically.
+- Existing Customer codes remain stable when Customer data is amended.
+- Customer Code allocation, Customer publication, and approval outcome must be atomic and idempotent in the later backend design.
+- Do not introduce annual, monthly, or Financial-Year reset behavior.
+
+Example: prefix `CUST-` with five digits yields `CUST-00001`, then `CUST-00002`.
+
+Allowed prefix validation, padding overflow behavior, and whether this configuration blocks Company activation or only `NEW_CUSTOMER` approval remain `REVIEW`. Exact table/counter/locking mechanics are not approved by this requirement and must not reuse document-numbering structures merely by convenience.
 
 ## 11. Business Nature
 
@@ -1117,7 +1141,7 @@ Company-level delivery configuration defaults include automatic sending explicit
 
 - Automatic send is explicit ON/OFF (default false).
 - Manual send can still occur when automatic sending is OFF.
-- Actual recipients come from Customer/Contact/document context, not Company Configuration.
+- Actual recipients come from explicit Customer Contact-purpose assignments and applicable document context, not Company Configuration or an assumed `PRIMARY` Contact role.
 - Delivery is asynchronous after financial finalization.
 - Provider secrets are external to PostgreSQL (stored in a secret manager, database stores reference only).
 
@@ -1293,6 +1317,7 @@ Only the following unresolved decisions materially influence Company Configurati
 1. What is the exact ownership boundary among platform Service Catalogue suggestions, Company adoption, and Company-specific service configuration?
 2. Are Team and other management-reporting references shared across modules, or owned by AR configuration in the MVP?
 3. What Company-level Receipt FX configuration is required, and how does its purpose differ from Billing and Reporting FX?
+4. For Customer Code configuration, what prefix validation and padding-overflow behavior apply, and does missing configuration block Company activation or only `NEW_CUSTOMER` approval? The system-generated Company-scoped start-at-1 non-resetting sequence direction is already selected.
 
 These remain **TBD**; this document does not resolve them by assumption.
 

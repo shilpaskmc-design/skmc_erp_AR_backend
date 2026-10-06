@@ -21,6 +21,54 @@ Human approval is required for current financial-document flow.
 
 ---
 
+# Customer Onboarding Approval and Workflow-Persistence Boundary — Current Working Design
+
+**Status: PROPOSED FOR FREEZE; no implementation authority until reviewed.**
+
+Customer onboarding and material amendments use Customer-specific `customer_requests`, immutable JSONB `customer_request_snapshots`, and append-only `customer_request_actions`. This replaces the alternatives described in the historical subsection below.
+
+- Request statuses are `DRAFT`, `SUBMITTED`, `RETURNED`, `APPROVED`, `REJECTED`, and `CANCELLED`.
+- Actions are `SUBMIT`, `RETURN`, `RESUBMIT`, `APPROVE`, `APPROVE_WITH_CHANGES`, `REJECT`, and `CANCEL`.
+- `RESUBMIT` and `APPROVE_WITH_CHANGES` are actions, not statuses; `UNDER_REVIEW` and `WITHDRAWN` are not used.
+- The request creator is its Maker and only that Maker normally edits the Draft/Returned request. The approver cannot be the Maker/submitter.
+- Submit/Resubmit creates an immutable `MAKER_SUBMISSION` snapshot from authoritative server-side `draft_data`.
+- Return preserves every earlier snapshot and stores its remarks on the Return action.
+- Authority edit-and-approve preserves the original Maker snapshot and a derived `AUTHORITY_APPROVED` snapshot containing the exact approved payload.
+- Approval/publication and its action evidence are atomic; pending data never overwrites live Customer data before approval.
+- Approved, rejected, and cancelled requests are terminal. Cancel is allowed only from Draft; rejected requests are not reopened/copy-resumed.
+- Autosave does not create workflow actions, and no field-level review-findings table is required.
+- Exact request payload preservation does not imply copying the complete Customer aggregate into every amendment snapshot.
+- Customer, Sales Order, and Billing retain aggregate-specific persistence; no generic workflow builder is introduced.
+
+The Class A/B/C change-control model, post-approval Contact approval versus direct edit, and GST-to-Location mapping change approval remain `REVIEW`.
+
+## Historical Customer workflow alternatives — `SUPERSEDED`
+
+**Status: SUPERSEDED as active design; retained for decision traceability.**
+
+Customer onboarding and later material Customer amendments use one aggregate-specific business workflow. Customer approval is separate from Sales Order and Billing approval even if those aggregates later reuse small approval primitives.
+
+- The business journey is Draft -> Submit -> Authority Review -> Approve / Approve with Changes / Return / Reject.
+- Returned onboarding may be corrected and resubmitted.
+- The approver cannot be the original maker/submitter.
+- Material changes include legal identity, jurisdiction-specific legal identifiers, GST registrations, physical Location additions/address or jurisdiction changes, and Customer default Payment Term/credit period.
+- Contact identity, endpoints, roles, AR communication-purpose assignments, and ordinary Customer Organisation association changes remain non-material operational changes unless they alter legal/statutory identity. They still require authorization and audit.
+- Standard Finance review returns the onboarding/amendment when a material correction is required.
+- Elevated edit-and-approve must preserve the original submitted evidence, exact approved values, complete diff, mandatory reason, and maker/checker separation; it cannot edit system-controlled identity/workflow fields.
+- Controlled content remains conceptually classified as `COMMON/PARTY-LIKE` or `CUSTOMER/AR-SPECIFIC`; MVP does not introduce separate Party and Customer workflows.
+
+The physical persistence choice remains `REVIEW`:
+
+1. Request + Actions;
+2. Request + Submissions + Decisions; or
+3. Request + Actions + immutable Revisions and typed revision children.
+
+These are alternatives, not cumulative tables. Revisions exist only if exact complete submitted-content reproduction is required and Approach 3 or an equivalent design is selected.
+
+See [Customer Onboarding Architecture and Decision Baseline](../architecture/customer_onboarding_decision_baseline.md) for the full status register.
+
+---
+
 # Future Workflow Extensibility
 
 The current one-step workflow must not be hardcoded so tightly that future multi-stage approval requires rewriting the billing engine.
@@ -109,11 +157,29 @@ Successful e-invoice/IRN generation is a separate hard edit lock. Corrections af
 
 ---
 
-# Version History vs Audit Events
+# Revision, Effective Version, Snapshot, and Audit Events
 
-Two concepts must remain distinct.
+Four concepts must remain distinct.
 
-## Version / Change History
+## Approval / Request Snapshot
+
+Answers: "What exact immutable request payload was submitted or approved at this workflow point?"
+
+For Customer, Submit/Resubmit creates a `MAKER_SUBMISSION` JSONB snapshot. Authority edit-and-approve may create a derived `AUTHORITY_APPROVED` snapshot. A new-Customer snapshot may be complete; an amendment snapshot may preserve only its exact proposed delta/context. Typed Customer revision-child persistence is superseded.
+
+## Effective-dated Version
+
+Answers: "What master value was valid during a defined time range?"
+
+Examples: Company Location and Customer Location address versions. Effective-dated versions are not inferred from audit rows.
+
+## Transaction Snapshot
+
+Answers: "What exact values did the finalized transaction or communication request use?"
+
+Examples include the Customer legal name/GSTIN, Bill-To/Ship-To address, selected credit days/due date, and resolved delivery-recipient value.
+
+## Field-change Evidence
 
 Answers:
 
@@ -178,3 +244,5 @@ Important events should preserve:
 Financially sensitive overrides must always be auditable.
 
 Super Admin / Authority should not silently bypass audit requirements.
+
+Audit evidence may contain before/after values, but it is not a replacement for workflow evidence, an immutable Customer request snapshot, an effective-dated master version, or a typed transaction snapshot. The current Customer history strategy is current master + immutable request snapshots/actions + audit + effective-dated Customer Location versions + owning transaction snapshots.

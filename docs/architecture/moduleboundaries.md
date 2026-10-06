@@ -89,6 +89,22 @@ TDS statutory reference
 
 ---
 
+# Customer / Party Boundary for the Current MVP
+
+**Status: PROPOSED baseline; implementation is not authorized by this section.**
+
+Customer Onboarding remains an AR-owned aggregate in the current MVP. Within that aggregate, legal/display identity, PAN and other statutory identifiers, Customer GST registrations, stable/effective-dated physical Customer Locations, Contact identity, and Contact Details are common/Party-like in meaning.
+
+Customer Code lifecycle, Customer default Payment Term/credit period, Customer Contact-purpose assignments, Customer approval, and commercial/receivable behavior are Customer/AR-specific.
+
+No shared Party, Vendor, or Contact master is approved for MVP. Common/Party-like data remains physically Customer-owned, but this does not declare permanent AR domain ownership. The boundary must remain explicit so a future approved Party model can link or extract common identity while Customer/AR behavior stays in AR.
+
+The MVP uses one Customer onboarding/amendment business workflow for both categories and conceptually classifies controlled changes as `COMMON/PARTY-LIKE` or `CUSTOMER/AR-SPECIFIC`. The current working persistence direction is Customer-specific Request + immutable JSONB Request Snapshots + append-only Actions; exact history means the exact submitted request payload, not typed Customer revision children. A future Party model may move common identity approval to Party; it must not force AR and future AP/Vendor onboarding to share terms, Contact purposes, or workflow routes.
+
+The full decision/status register is [Customer Onboarding Architecture and Decision Baseline](customer_onboarding_decision_baseline.md).
+
+---
+
 # AR-Specific Capabilities
 
 Current AR-owned capabilities include:
@@ -114,7 +130,7 @@ Current AR-owned capabilities include:
 - Receipt / Knock-off
 - AR Document Branding
 - Invoice Delivery
-- Customer Payment Terms
+- Customer default Payment Term / credit-period selection and AR inheritance behavior
 - AR Reminders
 - AR Approval Workflow
 - AR Audit Events

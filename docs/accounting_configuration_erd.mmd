@@ -1,0 +1,166 @@
+%% SKMC ERP Accounting Configuration — current approved design only
+%% Colors: blue=Hierarchy, amber=GL identity/placement,
+%% violet=Account Resolution, green=Supporting References.
+%% The Supply Type relationship is dashed because supply_types remains REVIEW.
+%%{init: {"theme":"base", "themeVariables":{"fontFamily":"Inter, Segoe UI, Arial, sans-serif", "lineColor":"#64748B", "primaryTextColor":"#172033"}}}%%
+erDiagram
+    direction LR
+
+    companies {
+        UUID id PK
+        VARCHAR legal_name "Company context"
+    }
+
+    account_hierarchies {
+        UUID id PK
+        UUID company_id FK
+        VARCHAR hierarchy_name
+        VARCHAR purpose_code "ACCOUNTING currently"
+        BOOLEAN is_primary
+        VARCHAR status
+    }
+
+    account_groups {
+        UUID id PK
+        UUID company_id FK
+        UUID hierarchy_id FK
+        VARCHAR group_name
+        VARCHAR group_code "nullable"
+        VARCHAR status
+    }
+
+    account_group_relationships {
+        UUID id PK
+        UUID company_id FK
+        UUID hierarchy_id FK
+        UUID parent_group_id FK
+        UUID child_group_id FK
+        DATE valid_from
+        DATE valid_to "nullable"
+    }
+
+    gl_accounts {
+        UUID id PK
+        UUID company_id FK
+        VARCHAR account_code "nullable"
+        VARCHAR account_name
+        DATE valid_from
+        DATE valid_to "nullable"
+        VARCHAR status
+    }
+
+    gl_account_group_mappings {
+        UUID id PK
+        UUID company_id FK
+        UUID hierarchy_id FK
+        UUID gl_account_id FK
+        UUID account_group_id FK "nullable = intentional root"
+        DATE valid_from
+        DATE valid_to "nullable"
+    }
+
+    revenue_gl_mappings {
+        UUID id PK
+        UUID company_id FK
+        VARCHAR supply_type_code "controlled; no hard FK approved"
+        UUID company_hsn_sac_code_id FK "nullable"
+        UUID gl_account_id FK
+        DATE valid_from
+        DATE valid_to "nullable"
+        VARCHAR status
+    }
+
+    tax_gl_account_mappings {
+        UUID id PK
+        UUID company_id FK
+        UUID tax_statutory_code_id FK
+        UUID gl_account_id FK
+        DATE valid_from
+        DATE valid_to "nullable"
+        VARCHAR status
+    }
+
+    company_accounting_settings {
+        UUID company_id PK, FK
+        UUID default_receivable_gl_account_id FK
+        TIMESTAMPTZ updated_at
+        UUID updated_by "nullable"
+    }
+
+    company_bank_accounts {
+        UUID id PK
+        UUID company_id FK
+        VARCHAR account_number
+        VARCHAR currency_code FK
+        UUID gl_account_id FK "nullable"
+        BOOLEAN is_default_for_billing
+        VARCHAR status
+    }
+
+    company_hsn_sac_codes {
+        UUID id PK
+        UUID company_id FK
+        VARCHAR classification_type "HSN or SAC"
+        VARCHAR code
+        VARCHAR status
+    }
+
+    tax_statutory_codes {
+        UUID id PK
+        UUID tax_type_id FK
+        VARCHAR code
+        VARCHAR code_kind "COMPONENT or SECTION"
+        VARCHAR country_code
+        VARCHAR status
+    }
+
+    supply_types {
+        UUID id PK "proposed if table retained"
+        VARCHAR code "controlled vocabulary"
+        VARCHAR name
+        VARCHAR category
+        VARCHAR status
+    }
+
+    companies ||--o{ account_hierarchies : "owns views"
+    companies ||--o{ account_groups : "owns folders"
+    account_hierarchies ||--o{ account_groups : "contains"
+
+    companies ||--o{ account_group_relationships : "scopes"
+    account_hierarchies ||--o{ account_group_relationships : "defines tree in"
+    account_groups ||--o{ account_group_relationships : "parent_group_id"
+    account_groups ||--o{ account_group_relationships : "child_group_id"
+
+    companies ||--o{ gl_accounts : "owns ledgers"
+    companies ||--o{ gl_account_group_mappings : "scopes"
+    account_hierarchies ||--o{ gl_account_group_mappings : "receives placements"
+    gl_accounts ||--o{ gl_account_group_mappings : "is placed by"
+    account_groups o|--o{ gl_account_group_mappings : "optional group target"
+
+    companies ||--o{ revenue_gl_mappings : "owns revenue rules"
+    companies ||--o{ company_hsn_sac_codes : "owns classifications"
+    company_hsn_sac_codes o|--o{ revenue_gl_mappings : "optional condition"
+    supply_types o|..o{ revenue_gl_mappings : "conditional code dependency - REVIEW"
+    gl_accounts ||--o{ revenue_gl_mappings : "resolved Revenue GL"
+
+    companies ||--o{ tax_gl_account_mappings : "owns tax rules"
+    tax_statutory_codes ||--o{ tax_gl_account_mappings : "statutory identity"
+    gl_accounts ||--o{ tax_gl_account_mappings : "resolved Tax GL"
+
+    companies ||--|| company_accounting_settings : "has one current setting"
+    gl_accounts ||--o{ company_accounting_settings : "default Receivable GL"
+
+    companies ||--o{ company_bank_accounts : "owns"
+    gl_accounts o|--o{ company_bank_accounts : "optional Bank GL"
+
+    classDef company fill:#F8FAFC,stroke:#475569,stroke-width:2px,color:#172033
+    classDef hierarchy fill:#EAF3FF,stroke:#2F6F9F,stroke-width:2px,color:#172033
+    classDef glidentity fill:#FFF6D8,stroke:#A66B00,stroke-width:2px,color:#172033
+    classDef resolution fill:#F3EAFF,stroke:#7450A8,stroke-width:2px,color:#172033
+    classDef supporting fill:#EAF8EE,stroke:#3B7A57,stroke-width:2px,color:#172033
+
+    class companies company
+    class account_hierarchies,account_groups,account_group_relationships hierarchy
+    class gl_accounts,gl_account_group_mappings glidentity
+    class revenue_gl_mappings,tax_gl_account_mappings,company_accounting_settings resolution
+    class company_hsn_sac_codes,tax_statutory_codes,supply_types,company_bank_accounts supporting
