@@ -4,7 +4,7 @@
 
 This requirement is **PROPOSED** for review and does not authorize implementation. `CONFIRMED` means agreed in the current planning baseline; `OPEN`, `REVIEW`, and `DEFERRED` items must remain unresolved.
 
-The detailed status register is [Customer Onboarding Architecture and Decision Baseline](../architecture/customer_onboarding_decision_baseline.md). The canonical persistence artifact is [Customer Onboarding and Customer Master Database Design](../CUSTOMER_ONBOARDING_ERD.md), status `CURRENT WORKING DESIGN / PROPOSED FOR FREEZE`. [Customer Onboarding Workflow Persistence Options](../CUSTOMER_ONBOARDING_WORKFLOW_OPTIONS.md) is retained only as a superseded historical alternatives record.
+The detailed status register is [Customer Onboarding Architecture and Decision Baseline](../architecture/customer_onboarding_decision_baseline.md). The canonical persistence artifact is [Customer Onboarding and Customer Master Database Design](../modules/customer/data_model.md), status `CURRENT WORKING DESIGN / PROPOSED FOR FREEZE`. [Customer Onboarding Workflow Persistence Options](../history/superseded/customer/customer_onboarding_workflow_options.md) is retained only as a superseded historical alternatives record.
 
 No API, migration, model, service, route, frontend, or test implementation is authorized.
 

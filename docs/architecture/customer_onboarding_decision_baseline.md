@@ -15,7 +15,7 @@ The decision statuses inside this proposed baseline mean:
 | `REVIEW` | The need or direction is known, but inclusion or detailed behavior must be reviewed before implementation. |
 | `DEFERRED` | Deliberately excluded from the current MVP design slice. |
 
-This document does **not** approve an API contract, migration, model, or implementation. [Customer Onboarding and Customer Master Database Design](../CUSTOMER_ONBOARDING_ERD.md) is the `CURRENT WORKING DESIGN / PROPOSED FOR FREEZE`; the older workflow-options document is historical/superseded.
+This document does **not** approve an API contract, migration, model, or implementation. [Customer Onboarding and Customer Master Database Design](../modules/customer/data_model.md) is the `CURRENT WORKING DESIGN / PROPOSED FOR FREEZE`; the older workflow-options document is historical/superseded.
 
 ## 2. Decision Summary
 
@@ -375,7 +375,7 @@ Customer Code is system-generated as Company-configured prefix plus a Company-sc
 
 ## 15. Design Gate for the Next Phase
 
-The canonical [Customer Onboarding and Customer Master Database Design](../CUSTOMER_ONBOARDING_ERD.md) is the **CURRENT WORKING DESIGN / PROPOSED FOR FREEZE**. [Customer Onboarding Workflow Persistence Options](../CUSTOMER_ONBOARDING_WORKFLOW_OPTIONS.md) is retained as a superseded historical alternatives record. Neither authorizes implementation.
+The canonical [Customer Onboarding and Customer Master Database Design](../modules/customer/data_model.md) is the **CURRENT WORKING DESIGN / PROPOSED FOR FREEZE**. [Customer Onboarding Workflow Persistence Options](../history/superseded/customer/customer_onboarding_workflow_options.md) is retained as a superseded historical alternatives record. Neither authorizes implementation.
 
 That design must:
 

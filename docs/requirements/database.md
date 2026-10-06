@@ -4083,7 +4083,7 @@ The design uses the following current directions:
 
 **Status: CURRENT WORKING DESIGN / PROPOSED FOR FREEZE; no migration or implementation is approved.**
 
-The canonical physical-review artifact is [Customer Onboarding and Customer Master Database Design](../CUSTOMER_ONBOARDING_ERD.md), using the [Customer Onboarding Architecture and Decision Baseline](../architecture/customer_onboarding_decision_baseline.md). [Customer Onboarding Workflow Persistence Options](../CUSTOMER_ONBOARDING_WORKFLOW_OPTIONS.md) is retained only as a superseded historical alternatives record.
+The canonical physical-review artifact is [Customer Onboarding and Customer Master Database Design](../modules/customer/data_model.md), using the [Customer Onboarding Architecture and Decision Baseline](../architecture/customer_onboarding_decision_baseline.md). [Customer Onboarding Workflow Persistence Options](../history/superseded/customer/customer_onboarding_workflow_options.md) is retained only as a superseded historical alternatives record.
 
 ### Current working 14-table set
 

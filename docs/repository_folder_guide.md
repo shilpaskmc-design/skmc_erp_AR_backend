@@ -292,16 +292,16 @@ tests/
 
 ```text
 docs/
-├── ACCOUNTING_CONFIGURATION_ERD.md
-├── accounting_configuration_erd.mmd
+├── modules/accounting/data_model.md
+├── modules/accounting/data_model.mmd
 ├── README.md
 ├── PRODUCT_OVERVIEW.md
 ├── AR_MVP_ARCHITECTURE.md
-├── REPOSITORY_IMPLEMENTATION_STATUS.md
-├── REPOSITORY_FOLDER_GUIDE.md
+├── history/repository_implementation_status_2026-09-10.md
+├── repository_folder_guide.md
 ├── CHANGELOG.md
 ├── architecture/
-│   ├── moduleboundaries.md
+│   ├── module_boundaries.md
 │   └── platform_architecture.md
 ├── decisions/
 │   ├── README.md
@@ -319,16 +319,16 @@ docs/
 
 | Path | Responsibility and authority | Must not be used as |
 |---|---|---|
-| `ACCOUNTING_CONFIGURATION_ERD.md` / `accounting_configuration_erd.mmd` | Rendered Mermaid documentation and editable Crow's Foot source for the current Accounting Configuration design. | A replacement for `requirements/database.md`, or approval for future Accounting/Account Determination tables. |
+| `modules/accounting/data_model.md` / `modules/accounting/data_model.mmd` | Rendered Mermaid documentation and editable Crow's Foot source for the current Accounting Configuration design. | A replacement for `requirements/database.md`, or approval for future Accounting/Account Determination tables. |
 | `README.md` | Documentation governance, source-of-truth precedence, status vocabulary, document map, and task-specific minimal-reading routes. | A detailed feature requirement. |
 | `PRODUCT_OVERVIEW.md` | High-level product vision, scope, concepts, principles, and Core/AR boundary. | Physical schema or endpoint specification. |
 | `AR_MVP_ARCHITECTURE.md` | Mixed-status AR architecture and domain direction. Each statement’s Confirmed/Proposed/TBD status matters. | Blanket approval to implement every described item. |
-| `architecture/` | Current platform guardrails and module/dependency ownership. `moduleboundaries.md` is the direct authority for Core-versus-AR placement; `platform_architecture.md` governs the modular monolith and platform constraints. | Detailed business behavior. |
+| `architecture/` | Current platform guardrails and module/dependency ownership. `module_boundaries.md` is the direct authority for Core-versus-AR placement; `platform_architecture.md` governs the modular monolith and platform constraints. | Detailed business behavior. |
 | `requirements/` | Feature/business requirements plus the working database-design document. Read the relevant feature first; use `database.md` for persistence detail only after behavior is approved. | Proof that a feature is implemented, or permission to implement items marked TBD/REVIEW/PROPOSED/DEFERRED/FUTURE. |
 | `decisions/` | Durable ADR/DDR governance and finalized consequential decision records. | A replacement for the owning requirement or routine change notes. |
 | `CHANGELOG.md` | Human-readable history of meaningful approved product/design evolution and supersession. | Git history or a full requirement specification. |
-| `REPOSITORY_IMPLEMENTATION_STATUS.md` | Dated evidence of what an earlier repository inspection found. | A live repository map or current desired behavior. |
-| `REPOSITORY_FOLDER_GUIDE.md` | This current “where does what live?” map. | Product authority, a migration inventory substitute, or proof that a feature passes tests. |
+| `history/repository_implementation_status_2026-09-10.md` | Dated evidence of what an earlier repository inspection found. | A live repository map or current desired behavior. |
+| `repository_folder_guide.md` | This current “where does what live?” map. | Product authority, a migration inventory substitute, or proof that a feature passes tests. |
 
 The authority order is: explicit approved decision, current feature requirement, finalized architecture constraints, current database design for persistence detail, implementation/tests as evidence, and then historical/reference material. A newer filename or modification date does not override that order.
 

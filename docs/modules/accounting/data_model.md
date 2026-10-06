@@ -2,7 +2,7 @@
 
 ## Scope
 
-This Entity Relationship Diagram shows only the **current approved Accounting Configuration design** from [`requirements/database.md`](requirements/database.md), especially **Accounting Setup / Chart of Accounts Tables**. It deliberately excludes journals, journal lines, balances, reconciliation, accounting periods, Account Types/classifications, future Account Determination, and transaction tables.
+This Entity Relationship Diagram shows only the **current approved Accounting Configuration design** from [`requirements/database.md`](../../requirements/database.md), especially **Accounting Setup / Chart of Accounts Tables**. It deliberately excludes journals, journal lines, balances, reconciliation, accounting periods, Account Types/classifications, future Account Determination, and transaction tables.
 
 The diagram is landscape-oriented, uses Crow's Foot cardinality, and keeps the current separation between hierarchy structure, GL identity/placement, automatic account resolution, and supporting references.
 
@@ -173,7 +173,7 @@ erDiagram
     class company_hsn_sac_codes,tax_statutory_codes,supply_types,company_bank_accounts supporting
 ```
 
-The standalone editable Mermaid source is [`accounting_configuration_erd.mmd`](accounting_configuration_erd.mmd).
+The standalone editable Mermaid source is [`data_model.mmd`](data_model.mmd).
 
 `currency_code` and `tax_type_id` remain marked as foreign keys, but their `currencies` and `tax_types` targets are intentionally not expanded because the requested supporting-reference boundary contains only Company HSN/SAC, Tax Statutory Code, and conditional Supply Type context.
 

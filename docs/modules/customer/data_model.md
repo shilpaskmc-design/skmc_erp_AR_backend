@@ -4,7 +4,7 @@
 
 **Document status:** `CURRENT WORKING DESIGN / PROPOSED FOR FREEZE` — documentation and design only.
 
-This is the canonical Customer Onboarding database-design review artifact. It uses the [Customer Onboarding Architecture and Decision Baseline](architecture/customer_onboarding_decision_baseline.md), [Customer Onboarding Requirements](requirements/customer_onboarding.md), [Approval and Audit Requirements](requirements/approval_and_audit), [Module Boundaries](architecture/moduleboundaries.md), and shared-table contracts in [database.md](requirements/database.md).
+This is the canonical Customer Onboarding database-design review artifact. It uses the [Customer Onboarding Architecture and Decision Baseline](../../architecture/customer_onboarding_decision_baseline.md), [Customer Onboarding Requirements](../../requirements/customer_onboarding.md), [Approval and Audit Requirements](../../requirements/approval_and_audit), [Module Boundaries](../../architecture/module_boundaries.md), and shared-table contracts in [database.md](../../requirements/database.md).
 
 It does not authorize SQL, migrations, ORM models, APIs, services, routes, frontend work, tests, or physical database changes. Exact data types, constraint syntax, indexes, and reference-key names remain part of the freeze/implementation-design review.
 
@@ -87,7 +87,7 @@ erDiagram
     legal_identifier_types ||--o{ customer_identifiers : classifies
 ~~~
 
-The editable Mermaid source is [customer_onboarding_erd.mmd](customer_onboarding_erd.mmd).
+The editable Mermaid source is [data_model.mmd](data_model.mmd).
 
 ## 5. Shared-reference alignment
 
@@ -491,7 +491,7 @@ The following are no longer active design alternatives:
 - Customer Code as an unresolved manual-versus-generated policy;
 - automatic direct-edit treatment for all post-approval Contact changes.
 
-[Customer Onboarding Workflow Persistence Options](CUSTOMER_ONBOARDING_WORKFLOW_OPTIONS.md) is retained only as a historical alternatives record. Earlier changelog entries remain intact for traceability and are superseded by the dated change entry adopting this current working design.
+[Customer Onboarding Workflow Persistence Options](../../history/superseded/customer/customer_onboarding_workflow_options.md) is retained only as a historical alternatives record. Earlier changelog entries remain intact for traceability and are superseded by the dated change entry adopting this current working design.
 
 ## 16. Freeze gate
 
