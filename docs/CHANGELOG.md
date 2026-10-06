@@ -34,6 +34,22 @@ Use `CHG-YYYY-MM-DD-NNN`, where the final three digits are a sequence for that d
 - **Implementation impact:** State whether implementation work is required, prohibited, completed, or separately pending.
 - **Open follow-ups:** List unresolved consequences without deciding them by assumption.
 
+### CHG-2026-10-06-003 — Company Configuration Module Documentation Consolidation
+
+- **Change ID:** CHG-2026-10-06-003
+- **Date:** 2026-10-06
+- **Status:** PROPOSED
+- **Area:** Company Configuration / Documentation Governance
+- **Source / discussion context:** Documentation-only consolidation requested for Phase 3C of the documentation folder architecture reorganization.
+- **Previous design/assumption:** Company Configuration requirements, data-model inventory, workflow journey, business rules, and open decisions were maintained across separate requirement, architecture, database monolith, and reference ERD documents. `requirements/COMPANY_CONFIGURATION.md` and `skmc_company_config_erd.mmd` remained potential competing canonical sources.
+- **New proposed decision:** Establish `docs/modules/company_configuration/` as the canonical Company Configuration documentation set containing `README.md`, `requirements.md`, `workflows.md`, `data_model.md`, `data_model.mmd`, `business_rules.md`, and `open_decisions.md`. Convert `requirements/COMPANY_CONFIGURATION.md` and `skmc_company_config_erd.mmd` to compatibility redirects, update module links in shared documentation, and preserve all current table structures and confirmed business rules.
+- **Decision:** Consolidate documentation authority and navigation without changing Company Configuration business behavior, table count, proposed columns, lifecycle, or physical-design status.
+- **Reason:** Provide one canonical reading order for Company Configuration, eliminate duplicate active authority, and keep confirmed, open, review, deferred, and historical material visibly separated.
+- **Supersedes:** Independent canonical status of `requirements/COMPANY_CONFIGURATION.md` and `skmc_company_config_erd.mmd`. No earlier business or database-design decision is superseded by this documentation-only reorganization.
+- **Affected documents:** `modules/company_configuration/README.md`; `modules/company_configuration/requirements.md`; `modules/company_configuration/workflows.md`; `modules/company_configuration/data_model.md`; `modules/company_configuration/data_model.mmd`; `modules/company_configuration/business_rules.md`; `modules/company_configuration/open_decisions.md`; `requirements/COMPANY_CONFIGURATION.md`; `skmc_company_config_erd.mmd`; `README.md`; `AR_MVP_ARCHITECTURE.md`; `CHANGELOG.md`.
+- **Implementation impact:** Documentation/design only. No application code, migration, SQL, ORM model, API, service, route, frontend, test, or physical database change is authorized or performed.
+- **Remaining open decisions:** Controlled tax-reference maintenance authority & foreign jurisdiction generalization; FX policy values & conversion selection rules; Team IAM membership enforcement; document numbering condition exact first-release condition/operator/combination/priority semantics; document output template selection rule & stamp visibility governance; stored-file retention/orphan-cleanup/legal-hold policy & canonical hash algorithm; Customer Code prefix validation, padding overflow behavior, and activation/approval gate; Service Catalogue platform suggestions vs Company adoption ownership boundary; incomplete draft Cost Center settings saved without a selected basis; `company_profile_versions` & `company_gst_registration_versions` necessity vs current projection.
+
 ### CHG-2026-10-06-002 — Customer Module Documentation Consolidation
 
 - **Change ID:** CHG-2026-10-06-002

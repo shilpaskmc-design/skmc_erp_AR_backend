@@ -33,7 +33,7 @@ Reviewed sources:
 | Source | What it contributes | Limit |
 |---|---|---|
 | [Product Overview](PRODUCT_OVERVIEW.md) | Product scope, hierarchy, commercial-to-cash flow, ownership and historical integrity | High-level baseline, not a transaction specification |
-| [Company Configuration Requirements](requirements/COMPANY_CONFIGURATION.md) | Existing configuration rules and acceptance criteria | Some previously open decisions are now resolved by the latest request |
+| [Company Configuration Module](modules/company_configuration/README.md) | Existing configuration rules, workflows, data model, business rules, and open decisions | Canonical Company Configuration documentation |
 | [Database Design](requirements/database.md) | Current detailed working table inventory, purposes, columns, relationships, statuses and change log | Source of truth for reviewed database design; ADD/REVIEW/DEFER remain subject to their stated decisions |
 | [Repository Implementation Status](history/repository_implementation_status_2026-09-10.md) | Dated inspection showing no backend implementation | Historical record; its claim that it was the only document is no longer a current file inventory |
 | [Module boundaries](architecture/module_boundaries.md), [Customer module](modules/customer/README.md), [Sales Order/commercial setup](requirements/sales_order_commercial_setup.md), [Billing/invoicing](requirements/billing_and_invoicing.md), [Tax statutory rules](requirements/tax_satutory_rules.md), and [Approval/audit](requirements/approval_and_audit) | Focused domain requirements | Current detailed transaction, tax, statutory-lock, history, and audit rules |

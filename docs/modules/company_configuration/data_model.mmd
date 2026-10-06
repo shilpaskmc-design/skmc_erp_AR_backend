@@ -1,0 +1,436 @@
+erDiagram
+    tenants ||--o{ organisations : "tenant_id"
+    tenants ||--o{ companies : "tenant_id"
+    organisations |o--o{ companies : "organisation_id"
+    entity_types |o--o{ companies : "entity_type_id"
+    currencies |o--o{ companies : "base_currency_code"
+    countries ||--o{ company_identifier_types : "country_code"
+    countries ||--o{ country_subdivisions : "country_code"
+    companies ||--o{ company_identifiers : "company_id"
+    company_identifier_types ||--o{ company_identifiers : "identifier_type_id"
+    entity_types ||--o{ entity_type_identifier_rules : "entity_type_id"
+    company_identifier_types ||--o{ entity_type_identifier_rules : "identifier_type_id"
+    companies ||--o{ company_legal_name_versions : "company_id"
+    companies ||--o{ company_gst_registrations : "company_id"
+    gst_registration_types |o--o{ company_gst_registrations : "gst_registration_type_id"
+    country_subdivisions ||--o{ company_gst_registrations : "subdivision_code"
+    company_gst_registrations ||..o{ company_gst_registration_versions : "REVIEW gst_registration_id"
+    companies ||--o{ company_locations : "company_id"
+    company_gst_registrations |o--o{ company_locations : "gst_registration_id"
+    cost_center_locations |o--o{ company_locations : "cost_center_location_id"
+    countries ||--o{ company_locations : "country_code"
+    country_subdivisions |o--o{ company_locations : "subdivision_code"
+    company_locations ||--o{ company_location_versions : "company_location_id"
+    countries ||--o{ company_location_versions : "country_code"
+    country_subdivisions |o--o{ company_location_versions : "subdivision_code"
+    companies ||--|| company_fiscal_settings : "company_id"
+    companies ||--o{ financial_years : "company_id"
+    companies ||--o{ company_luts : "company_id"
+    company_gst_registrations ||--o{ company_luts : "gst_registration_id"
+    financial_years ||--o{ company_luts : "financial_year_id"
+    companies ||--o{ company_reporting_currencies : "company_id"
+    currencies ||--o{ company_reporting_currencies : "currency_code"
+    companies ||--o{ company_ar_currencies : "company_id"
+    currencies ||--o{ company_ar_currencies : "currency_code"
+    companies ||--o{ company_bank_accounts : "company_id"
+    currencies ||--o{ company_bank_accounts : "currency_code"
+    gl_accounts |o--o{ company_bank_accounts : "gl_account_id"
+    companies ||--o{ exchange_rates : "company_id"
+    currencies ||--o{ exchange_rates : "from_currency_code"
+    currencies ||--o{ exchange_rates : "to_currency_code"
+    companies ||--o{ fx_policies : "company_id"
+    companies ||--o{ company_hsn_sac_codes : "company_id"
+    tax_types ||--o{ tax_rates : "tax_type_id"
+    tax_types ||--o{ tax_treatments : "tax_type_id"
+    tax_types ||--o{ tax_statutory_codes : "tax_type_id"
+    tax_statutory_codes ||--o{ tax_statutory_code_rates : "tax_statutory_code_id"
+    company_hsn_sac_codes ||--o{ company_hsn_sac_tax_rates : "company_hsn_sac_code_id"
+    tax_rates ||--o{ company_hsn_sac_tax_rates : "tax_rate_id"
+    companies ||--o{ service_categories : "company_id"
+    companies ||--o{ service_types : "company_id"
+    service_categories ||--o{ service_types : "service_category_id"
+    company_hsn_sac_codes ||--o{ service_types : "company_hsn_sac_code_id"
+    tax_treatments ||--o{ service_types : "base_tax_treatment_id"
+    tax_rates |o--o{ service_types : "selected_tax_rate_id"
+    cost_center_business_segments |o--o{ service_types : "business_segment_id"
+    company_hsn_sac_codes ||--o{ skus : "company_hsn_sac_code_id"
+    tax_treatments ||--o{ skus : "base_tax_treatment_id"
+    tax_rates |o--o{ skus : "selected_tax_rate_id"
+    cost_center_business_segments |o--o{ skus : "business_segment_id"
+    companies ||--o{ product_categories : "company_id"
+    companies ||--o{ products : "company_id"
+    product_categories ||--o{ products : "product_category_id"
+    companies ||--o{ skus : "company_id"
+    products ||--o{ skus : "product_id"
+    companies ||--o{ cost_center_locations : "company_id"
+    companies ||--o{ cost_center_business_segments : "company_id"
+    companies ||--o{ cost_center_teams : "company_id"
+    companies ||--o{ payment_terms : "company_id"
+    companies ||--o{ company_document_branding : "company_id"
+    companies ||--|| reminder_policies : "company_id"
+    companies ||--o{ company_user_memberships : "company_id"
+    companies ||--o{ stored_files : "company_id"
+    companies ||--o{ document_sequences : "company_id"
+    companies ||--o{ teams : "company_id"
+    cost_center_teams |o--o{ teams : "cost_center_team_id"
+    teams ||--o{ team_memberships : "team_id"
+    companies ||--|| company_cost_center_settings : "company_id"
+    financial_years ||--o{ document_sequences : "financial_year_id"
+    document_sequences ||--o{ document_sequence_conditions : "document_sequence_id"
+    companies ||--o{ company_document_templates : "company_id"
+    company_document_branding |o--o{ company_document_templates : "branding_id"
+    stored_files |o--o{ company_document_branding : "logo_file_id"
+    stored_files |o--o{ company_document_branding : "signature_file_id"
+    stored_files |o--o{ company_document_branding : "stamp_file_id"
+    tenants ||--o{ email_provider_configs : "tenant_id"
+    companies |o--o{ email_provider_configs : "company_id"
+    companies ||--|| company_invoice_delivery_settings : "company_id"
+    email_provider_configs |o--o{ company_invoice_delivery_settings : "email_provider_config_id"
+    reminder_policies ||--o{ reminder_schedule_rules : "reminder_policy_id"
+    companies ||..o{ company_approval_settings : "REVIEW company_id"
+    tenants {
+        string id PK
+        string code
+        string name
+        string status
+    }
+    organisations {
+        string id PK
+        string tenant_id FK
+        string name
+        string status
+    }
+    countries {
+        string code PK
+        string name
+    }
+    country_subdivisions {
+        string id PK
+        string country_code FK
+        string code
+        string gst_state_code
+    }
+    entity_types {
+        string id PK
+        string country_code
+        string code
+        string name
+    }
+    company_identifier_types {
+        string id PK
+        string country_code FK
+        string code
+        string name
+    }
+    entity_type_identifier_rules {
+        string id PK
+        string entity_type_id FK
+        string identifier_type_id FK
+        string requirement_level
+    }
+    company_identifiers {
+        string id PK
+        string company_id FK
+        string identifier_type_id FK
+        string identifier_value
+    }
+    companies {
+        string id PK
+        string tenant_id FK
+        string organisation_id FK
+        string entity_type_id FK
+        string base_currency_code FK
+        string company_code
+        string legal_name
+        string country_code
+        string status
+    }
+    company_legal_name_versions {
+        string id PK
+        string company_id FK
+        string legal_name
+        string valid_from
+        string valid_to
+    }
+    gst_registration_types {
+        string id PK
+        string code
+        string name
+    }
+    company_gst_registrations {
+        string id PK
+        string company_id FK
+        string gst_registration_type_id FK
+        string subdivision_code FK
+        string gstin
+        string status
+    }
+    company_gst_registration_versions {
+        string gst_registration_id FK
+        string registered_legal_name
+        string valid_from
+        string valid_to
+    }
+    company_locations {
+        string id PK
+        string company_id FK
+        string gst_registration_id FK
+        string cost_center_location_id FK
+        string country_code FK
+        string subdivision_code FK
+        string location_code
+        string status
+    }
+    company_location_versions {
+        string id PK
+        string company_location_id FK
+        string country_code FK
+        string subdivision_code FK
+        string valid_from
+        string valid_to
+    }
+    company_fiscal_settings {
+        string company_id PK
+        string fiscal_year_pattern
+        string start_month
+        string start_day
+    }
+    financial_years {
+        string id PK
+        string company_id FK
+        string display_code
+        string start_date
+        string end_date
+        string status
+    }
+    company_luts {
+        string id PK
+        string company_id FK
+        string gst_registration_id FK
+        string financial_year_id FK
+        string lut_reference
+    }
+    currencies {
+        string code PK
+        string name
+        string minor_units
+    }
+    company_reporting_currencies {
+        string company_id PK
+        string currency_code PK
+        string status
+    }
+    company_ar_currencies {
+        string id PK
+        string company_id FK
+        string currency_code FK
+        string billing_enabled
+        string receipt_enabled
+    }
+    company_bank_accounts {
+        string id PK
+        string company_id FK
+        string currency_code FK
+        string gl_account_id FK
+        string bank_name
+        string account_type
+    }
+    exchange_rates {
+        string id PK
+        string company_id FK
+        string from_currency_code FK
+        string to_currency_code FK
+        string rate
+        string rate_type
+    }
+    fx_policies {
+        string id PK
+        string company_id FK
+        string purpose
+        string default_rate_type
+    }
+    gl_accounts {
+        string id PK
+    }
+    tax_types {
+        string id PK
+        string code
+        string name
+        string country_code
+    }
+    company_hsn_sac_codes {
+        string id PK
+        string company_id FK
+        string classification_type
+        string code
+    }
+    tax_rates {
+        string id PK
+        string tax_type_id FK
+        string rate_percent
+    }
+    company_hsn_sac_tax_rates {
+        string id PK
+        string company_hsn_sac_code_id FK
+        string tax_rate_id FK
+        string valid_from
+    }
+    tax_treatments {
+        string id PK
+        string tax_type_id FK
+        string code
+    }
+    tax_statutory_codes {
+        string id PK
+        string tax_type_id FK
+        string code
+        string code_kind
+    }
+    tax_statutory_code_rates {
+        string id PK
+        string tax_statutory_code_id FK
+        string rate_percent
+    }
+    supply_types {
+        string id PK
+        string code
+        string category
+    }
+    service_categories {
+        string id PK
+        string company_id FK
+        string name
+    }
+    service_types {
+        string id PK
+        string company_id FK
+        string service_category_id FK
+        string company_hsn_sac_code_id FK
+        string base_tax_treatment_id FK
+        string selected_tax_rate_id FK
+        string business_segment_id FK
+        string name
+    }
+    product_categories {
+        string id PK
+        string company_id FK
+        string name
+    }
+    products {
+        string id PK
+        string company_id FK
+        string product_category_id FK
+        string name
+    }
+    skus {
+        string id PK
+        string company_id FK
+        string product_id FK
+        string company_hsn_sac_code_id FK
+        string base_tax_treatment_id FK
+        string selected_tax_rate_id FK
+        string business_segment_id FK
+        string sku_code
+    }
+    cost_center_locations {
+        string id PK
+        string company_id FK
+        string name
+    }
+    cost_center_business_segments {
+        string id PK
+        string company_id FK
+        string name
+    }
+    cost_center_teams {
+        string id PK
+        string company_id FK
+        string name
+    }
+    teams {
+        string id PK
+        string company_id FK
+        string cost_center_team_id FK
+        string name
+    }
+    team_memberships {
+        string id PK
+        string team_id FK
+        string user_subject_id
+        string valid_from
+        string valid_to
+    }
+    company_cost_center_settings {
+        string company_id PK
+        string business_segment_enabled
+        string team_enabled
+    }
+    document_sequences {
+        string id PK
+        string company_id FK
+        string financial_year_id FK
+        string document_type
+        string series_name
+    }
+    document_sequence_conditions {
+        string id PK
+        string document_sequence_id FK
+        string condition_type
+    }
+    payment_terms {
+        string id PK
+        string company_id FK
+        string code
+        string term_type
+    }
+    company_document_branding {
+        string id PK
+        string company_id FK
+        string logo_file_id FK
+        string signature_file_id FK
+        string stamp_file_id FK
+    }
+    company_document_templates {
+        string id PK
+        string company_id FK
+        string branding_id FK
+        string template_key
+    }
+    email_provider_configs {
+        string id PK
+        string tenant_id FK
+        string company_id FK
+        string provider_type
+    }
+    company_invoice_delivery_settings {
+        string company_id PK
+        string email_provider_config_id FK
+        string automatic_sending_enabled
+    }
+    reminder_policies {
+        string id PK
+        string company_id FK
+        string enabled
+    }
+    reminder_schedule_rules {
+        string id PK
+        string reminder_policy_id FK
+        string offset_days
+    }
+    company_approval_settings {
+        string id PK
+        string company_id FK
+        string document_type
+        string approver_role
+    }
+    company_user_memberships {
+        string id PK
+        string company_id FK
+        string user_subject_id
+    }
+    stored_files {
+        string id PK
+        string company_id FK
+        string object_key
+        string content_hash
+    }
