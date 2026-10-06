@@ -25,6 +25,8 @@ Human approval is required for current financial-document flow.
 
 **Status: PROPOSED FOR FREEZE; no implementation authority until reviewed.**
 
+The canonical Customer-specific journey is [Customer Request Workflows](../modules/customer/workflows.md). This shared document supplies approval/audit semantics and must not override the consolidated [Customer Business Rules](../modules/customer/business_rules.md) or [Customer Open Decisions](../modules/customer/open_decisions.md).
+
 Customer onboarding and material amendments use Customer-specific `customer_requests`, immutable JSONB `customer_request_snapshots`, and append-only `customer_request_actions`. This replaces the alternatives described in the historical subsection below.
 
 - Request statuses are `DRAFT`, `SUBMITTED`, `RETURNED`, `APPROVED`, `REJECTED`, and `CANCELLED`.
@@ -57,15 +59,15 @@ Customer onboarding and later material Customer amendments use one aggregate-spe
 - Elevated edit-and-approve must preserve the original submitted evidence, exact approved values, complete diff, mandatory reason, and maker/checker separation; it cannot edit system-controlled identity/workflow fields.
 - Controlled content remains conceptually classified as `COMMON/PARTY-LIKE` or `CUSTOMER/AR-SPECIFIC`; MVP does not introduce separate Party and Customer workflows.
 
-The physical persistence choice remains `REVIEW`:
+At the time these historical alternatives were recorded, the physical persistence choice remained `REVIEW`:
 
 1. Request + Actions;
 2. Request + Submissions + Decisions; or
 3. Request + Actions + immutable Revisions and typed revision children.
 
-These are alternatives, not cumulative tables. Revisions exist only if exact complete submitted-content reproduction is required and Approach 3 or an equivalent design is selected.
+These were alternatives, not cumulative tables. They are superseded by the current Request + immutable JSONB Request Snapshots + append-only Actions proposal documented in the Customer module.
 
-See [Customer Onboarding Architecture and Decision Baseline](../architecture/customer_onboarding_decision_baseline.md) for the full status register.
+See [Customer Business Rules](../modules/customer/business_rules.md) and [Customer Open Decisions](../modules/customer/open_decisions.md) for the current status register.
 
 ---
 
@@ -245,4 +247,4 @@ Financially sensitive overrides must always be auditable.
 
 Super Admin / Authority should not silently bypass audit requirements.
 
-Audit evidence may contain before/after values, but it is not a replacement for workflow evidence, an immutable Customer request snapshot, an effective-dated master version, or a typed transaction snapshot. The current Customer history strategy is current master + immutable request snapshots/actions + audit + effective-dated Customer Location versions + owning transaction snapshots.
+Audit evidence may contain before/after values, but it is not a replacement for workflow evidence, an immutable Customer request snapshot, or an effective-dated master version. The Customer-owned history strategy is current master + immutable request snapshots/actions + audit + effective-dated Customer Location versions. Downstream modules govern the historical transaction data required by their own finalized-document rules.

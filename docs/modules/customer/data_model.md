@@ -4,7 +4,7 @@
 
 **Document status:** `CURRENT WORKING DESIGN / PROPOSED FOR FREEZE` — documentation and design only.
 
-This is the canonical Customer Onboarding database-design review artifact. It uses the [Customer Onboarding Architecture and Decision Baseline](../../architecture/customer_onboarding_decision_baseline.md), [Customer Onboarding Requirements](../../requirements/customer_onboarding.md), [Approval and Audit Requirements](../../requirements/approval_and_audit), [Module Boundaries](../../architecture/module_boundaries.md), and shared-table contracts in [database.md](../../requirements/database.md).
+This is the canonical Customer Onboarding database-design review artifact. Read it with the [Customer Module Overview](README.md), [Requirements](requirements.md), [Workflows](workflows.md), [Business Rules](business_rules.md), and [Open Decisions](open_decisions.md). It also follows the shared [Approval and Audit Requirements](../../requirements/approval_and_audit), [Module Boundaries](../../architecture/module_boundaries.md), and shared-table contracts in [database.md](../../requirements/database.md).
 
 It does not authorize SQL, migrations, ORM models, APIs, services, routes, frontend work, tests, or physical database changes. Exact data types, constraint syntax, indexes, and reference-key names remain part of the freeze/implementation-design review.
 
@@ -22,7 +22,7 @@ Pending request data must never overwrite operational Customer rows before appro
 - No Party Master, Vendor model, shared Contact master, or generic Counterparty architecture is introduced.
 - Customer default Payment Term, Customer Code lifecycle, approval, and communication purposes remain Customer/AR-specific.
 - Bill-To and Ship-To are transaction selections from eligible approved Locations, not permanent Customer Location flags.
-- Finalized financial documents preserve transaction-time snapshots in their own design; this document does not redesign Billing snapshots.
+- Downstream modules govern the historical transaction data required by their own finalized-document rules; this document does not prescribe those mechanisms.
 - Credit Limit is outside the current Customer MVP.
 
 ## 3. Current 14-table working set
@@ -39,9 +39,9 @@ Pending request data must never overwrite operational Customer rows before appro
 | 6 | `customer_location_versions` | Effective-dated Location name/address/GST context | `CURRENT WORKING DESIGN` |
 | 7 | `customer_documents` | Current Customer supporting-file associations | `CURRENT WORKING DESIGN` |
 | 8 | `customer_contacts` | Person, department, or general Contact identity | `CURRENT WORKING DESIGN`; post-approval control `REVIEW` |
-| 9 | `customer_contact_details` | Email/phone/mobile/WhatsApp reachability | `CURRENT WORKING DESIGN`; verification `REVIEW` |
+| 9 | `customer_contact_details` | Email/phone/mobile/WhatsApp reachability | `CURRENT WORKING DESIGN` |
 | 10 | `customer_contact_roles` | Organisational/business roles of Contacts | `CURRENT WORKING DESIGN` |
-| 11 | `customer_contact_purposes` | Why a Contact Detail may be used | `CURRENT WORKING DESIGN`; delivery resolution `REVIEW` |
+| 11 | `customer_contact_purposes` | Why a Contact Detail may be used | `CURRENT WORKING DESIGN` |
 
 ### 3.2 Request / approval / history
 
@@ -89,11 +89,11 @@ erDiagram
 
 The editable Mermaid source is [data_model.mmd](data_model.mmd).
 
-## 5. Shared-reference alignment
+## 5. Shared-reference structural mapping
 
-The logical `country_id`, `state_id`, and `identifier_type_id` names below express references to shared geography/legal-identifier concepts. Physical FK names and targets must align with the repository's existing `countries`, `country_subdivisions`, and currently Company-named identifier-type references during freeze. The possible reusable legal-identifier-type rename/alignment remains `REVIEW`; it does not add a fifteenth Customer table.
+The logical `country_id`, `state_id`, and `identifier_type_id` names below express references to shared geography/legal-identifier concepts. Physical FK names and targets must align with the repository's existing `countries`, `country_subdivisions`, and currently Company-named identifier-type references during structural freeze. This alignment does not add a fifteenth Customer table or constitute a Customer business open decision.
 
-`document_type_id` must reference an approved reusable document-type identity. The exact existing target/name remains a reference-alignment `REVIEW`; no Customer-specific document-rule or document-type table is introduced by this design.
+`document_type_id` must reference an approved reusable document-type identity. Its exact existing target/name is structural-freeze work; no Customer-specific document-rule or document-type table is introduced by this design.
 
 Other reused identities include `tenants`, `companies`, `entity_types`, `gst_registration_types`, `payment_terms`, `stored_files`, IAM actor identities, and the separately reviewed audit capability.
 
@@ -133,7 +133,7 @@ All IDs are proposed UUID primary keys unless repository conventions select anot
 | `customer_code` | No after publication | System-generated stable Company-scoped code |
 | `legal_name` | No | Current approved legal name |
 | `display_name` | Yes | Optional display/search name |
-| `entity_type_id` | Yes | FK to shared Entity Type; Customer applicability remains `REVIEW` |
+| `entity_type_id` | Yes | FK to shared Entity Type; exact structural applicability/alignment is structural-freeze work |
 | `country_id` | No | FK to shared Country reference; physical key alignment at freeze |
 | `is_gst_registered` | No | Current GST-registration declaration |
 | `default_payment_term_id` | Yes | FK to active same-Company Payment Term; null uses Company default |
@@ -183,7 +183,7 @@ All IDs are proposed UUID primary keys unless repository conventions select anot
 
 **Rules:** A Customer may have zero registrations when unregistered, or one/many distinct registrations when registered. Approved/current normalized GSTIN uniqueness is Company-scoped. A Location version may associate with an applicable same-Customer registration.
 
-**Lifecycle:** Incorrect/obsolete registrations are inactivated and replacement is introduced through the controlled change path. Final transactions snapshot the selected GST identity.
+**Lifecycle:** Incorrect/obsolete registrations are inactivated and replacement is introduced through the controlled change path.
 
 ### 6.5 `customer_locations`
 
@@ -227,7 +227,7 @@ All IDs are proposed UUID primary keys unless repository conventions select anot
 
 **Rules:** Address-bearing fields exist only here. Versions for one Location must not overlap, version numbers must be unique per Location, and at most one open/current version is allowed. An approved effective change creates a new version instead of rewriting historical versions. GST mapping and registered-address designation currently belong to the effective version.
 
-**Lifecycle:** Versions are historical and queryable, not hard-deleted. Future scheduling/backdating is not introduced by this design. Whether GST-to-Location mapping changes require approval remains `REVIEW`.
+**Lifecycle:** Versions are historical and queryable, not hard-deleted. Whether GST-to-Location mapping changes require approval remains `REVIEW`.
 
 ### 6.7 `customer_documents`
 
@@ -237,7 +237,7 @@ All IDs are proposed UUID primary keys unless repository conventions select anot
 |---|---:|---|
 | `id` | No | PK |
 | `customer_id` | No | FK to Customer |
-| `document_type_id` | No | FK to approved reusable document-type identity; target alignment `REVIEW` |
+| `document_type_id` | No | FK to approved reusable document-type identity; exact target is structural-freeze work |
 | `stored_file_id` | No | FK to `stored_files`; no file bytes here |
 | `customer_identifier_id` | Yes | FK to evidenced same-Customer identifier |
 | `customer_gst_registration_id` | Yes | FK to evidenced same-Customer GST registration |
@@ -281,9 +281,9 @@ All IDs are proposed UUID primary keys unless repository conventions select anot
 | `status` | No | `ACTIVE` or `INACTIVE` |
 | `created_at`, `created_by`, `updated_at`, `updated_by` | No | Current-row evidence |
 
-**Rules:** Backend format validation/normalization remains required. Endpoint verification/provider rules are not part of the database freeze.
+**Rules:** Backend format validation/normalization remains required. Endpoint verification/provider rules belong to downstream communication/provider design and are not a Customer business open decision.
 
-**Lifecycle:** Prior details are inactivated rather than silently overwritten where historical communication evidence exists. Delivery/reminder requests later snapshot resolved values.
+**Lifecycle:** Prior details are inactivated rather than silently overwritten where historical communication evidence exists.
 
 ### 6.10 `customer_contact_roles`
 
@@ -309,7 +309,7 @@ All IDs are proposed UUID primary keys unless repository conventions select anot
 | `purpose_code` | No | Initial examples: `BILLING`, `PAYMENT`, `PAYMENT_REMINDER` |
 | `created_at`, `created_by` | No | Assignment evidence |
 
-**Rules/lifecycle:** Contact Role and Contact Purpose remain separate. TO/CC/BCC, fallback, priority, recipient resolution, verification, and delivery/reminder override rules remain outside this table and under `REVIEW` in Delivery/Reminder design.
+**Rules/lifecycle:** Contact Role and Contact Purpose remain separate. TO/CC/BCC, fallback, priority, recipient resolution, verification, and delivery/reminder override rules are governed by downstream Delivery/Reminder design, not Customer open decisions.
 
 ## 7. Request, approval, and immutable history tables
 
@@ -401,7 +401,7 @@ For `NEW_CUSTOMER`, the snapshot may be the complete form. An amendment snapshot
 - Request types have heterogeneous shapes; `NEW_CUSTOMER` may be complete while amendments are narrow deltas.
 - Immutable JSONB snapshots preserve exactly what the Maker submitted and what Authority approved without maintaining parallel typed history tables for every child collection.
 - Historical workflow evidence is normally retrieved per request, while operational reporting uses typed approved Customer tables.
-- Final financial transaction truth remains typed/snapshotted by the owning Sales Order/Billing design, not by these JSONB request tables.
+- Downstream transaction-history requirements remain governed by the owning Sales Order/Billing module, not by these JSONB request tables.
 
 Application/backend validation must validate the request-type payload before Submit and again before publish. Database constraints continue to protect approved/current relational invariants.
 
@@ -439,7 +439,7 @@ Customer Code = Company-configured prefix + Company-scoped sequential number
 
 Example: prefix `CUST-`, digits `5` produces `CUST-00001`, `CUST-00002`.
 
-Allowed prefix validation, padding overflow behavior, and whether code setup blocks Company activation or only Customer approval remain physical/configuration review details; no annual/monthly/FY reset is introduced.
+Allowed prefix validation, padding overflow behavior, and whether code setup blocks Company activation or only Customer approval belong to Company Configuration and structural-freeze work; they are not Customer business open decisions. No annual/monthly/FY reset is introduced.
 
 ## 13. Historical integrity
 
@@ -451,11 +451,11 @@ Allowed prefix validation, padding overflow behavior, and whether code setup blo
 | Workflow actor/state/remarks evidence | `customer_request_actions` |
 | Effective Customer address history | `customer_location_versions` |
 | General actor/before-after evidence | Shared audit capability |
-| Final invoice/address/statutory/term/recipient truth | Owning finalized transaction/delivery snapshot |
+| Finalized downstream transaction history | Owning downstream module under its finalized-document rules |
 
-Snapshots do not replace audit, Location versions, or financial transaction snapshots. Customer name does not require a separate name-version table in this MVP.
+Customer request snapshots do not replace audit or Location versions and do not prescribe downstream transaction-history mechanisms. Customer name does not require a separate name-version table in this MVP.
 
-## 14. REVIEW, OPEN, and deferred items
+## 14. Customer business REVIEW, OPEN, and deferred boundaries
 
 | Item | Status | Boundary |
 |---|---|---|
@@ -463,15 +463,12 @@ Snapshots do not replace audit, Location versions, or financial transaction snap
 | Approval-required vs direct-edit-allowed Class B fields | `REVIEW` | Authorization/business-policy decision |
 | Post-approval Contact change approval | `REVIEW` | `ADD_CONTACT` request applies only if later required |
 | GST-to-Location mapping change approval | `REVIEW` | Physical mapping stays on Location version |
-| Contact recipient precedence, TO/CC/BCC, fallback, and priority | `REVIEW` | Delivery/Reminder design |
-| Contact Detail verification and WhatsApp/provider behavior | `REVIEW` | Not in database freeze |
-| Shared identifier-type naming/applicability | `REVIEW` | Reuse existing concept; no duplicate table |
-| Geography physical FK naming (`country_id`/`state_id`) | `REVIEW` | Align with existing shared reference keys |
-| `document_type_id` reference target | `REVIEW` | Reuse approved reference; no new engine/table now |
-| Supporting-document matrix and non-India rules | `REVIEW` | No large rule engine |
+| Non-India statutory applicability | `REVIEW` | Determine applicable identifiers and supporting evidence by supported jurisdiction/entity type |
 | Customer reactivation | `OPEN` | Same identity/code vs controlled replacement unresolved |
 | Credit Limit/group exposure | `DEFERRED` | Outside MVP |
 | Shared Party/Vendor/Contact master | `DEFERRED` | Future architecture only |
+
+Recipient-resolution and Contact-verification behavior belongs to downstream Delivery/Reminder design. Customer Code configuration details belong to Company Configuration. Shared-reference alignment and exact physical constraints belong to database structural-freeze work. None is a Customer business open decision.
 
 ## 15. Superseded design elements
 
@@ -495,4 +492,4 @@ The following are no longer active design alternatives:
 
 ## 16. Freeze gate
 
-Before implementation, reviewers must approve this working design, resolve the reference-alignment items needed by physical FKs, define exact constraints/indexes/data types, and retain all explicitly `REVIEW`, `OPEN`, and `DEFERRED` boundaries. No API contract, migration, or model should be derived as approved merely because this document now supplies a coherent 14-table candidate.
+Before implementation, reviewers must approve this working design, complete the structural FK/constraint/index/data-type freeze, and retain the Customer business `REVIEW`, `OPEN`, and `DEFERRED` boundaries above. No API contract, migration, or model should be derived as approved merely because this document now supplies a coherent 14-table candidate.

@@ -4083,7 +4083,7 @@ The design uses the following current directions:
 
 **Status: CURRENT WORKING DESIGN / PROPOSED FOR FREEZE; no migration or implementation is approved.**
 
-The canonical physical-review artifact is [Customer Onboarding and Customer Master Database Design](../modules/customer/data_model.md), using the [Customer Onboarding Architecture and Decision Baseline](../architecture/customer_onboarding_decision_baseline.md). [Customer Onboarding Workflow Persistence Options](../history/superseded/customer/customer_onboarding_workflow_options.md) is retained only as a superseded historical alternatives record.
+The canonical physical-review artifact is [Customer Onboarding and Customer Master Database Design](../modules/customer/data_model.md), read with the consolidated [Customer Business Rules](../modules/customer/business_rules.md) and [Customer Open Decisions](../modules/customer/open_decisions.md). [Customer Onboarding Workflow Persistence Options](../history/superseded/customer/customer_onboarding_workflow_options.md) is retained only as a superseded historical alternatives record.
 
 ### Current working 14-table set
 
@@ -4122,14 +4122,11 @@ The earlier three alternatives and their typed revision children/submission-deci
 
 | Concept | Classification | Boundary |
 |---|---|---|
-| `customer_delivery_settings` | `REVIEW` | Recipient/override precedence unresolved |
-| `customer_reminder_settings` | `REVIEW` | Merge/replace and recipient behavior unresolved |
-| Customer Code configuration details | `REVIEW` | Prefix validation, padding overflow, activation/readiness gate, physical counter/locking |
 | Customer reactivation/re-onboarding | `OPEN` | Lifecycle and identifier/code reuse unresolved |
-| Endpoint verification/WhatsApp persistence | `REVIEW` | No verification design approved |
-| Post-approval Contact and GST-to-Location change control | `REVIEW` | Approval request versus direct authorized edit/audit unresolved |
+| Post-approval Contact change control | `REVIEW` | Approval request versus direct authorized edit/audit unresolved |
+| GST-to-Location mapping change control | `REVIEW` | Approval request versus another authorized/audited maintenance path unresolved |
 | Class A/B/C change-control model | `REVIEW` | Do not add policy/configuration tables yet |
-| Supporting-document matrix/non-India rules | `OPEN / REVIEW` | Readiness requirements unresolved |
+| Non-India statutory applicability | `REVIEW` | Applicable identifiers and supporting evidence by supported jurisdiction/entity type unresolved |
 | Credit Limit | `DEFERRED` | No current Customer table/column |
 | `industries` | `DEFERRED` | No approved Customer requirement |
 
@@ -6854,17 +6851,15 @@ backend validation enforce the applicable rules.
 
 Open decisions before downstream schema freeze are:
 
-- Customer Code prefix validation, padding overflow, configuration readiness gate, and exact counter/locking/idempotency mechanics. System generation, Company scope, start at 1, no automatic reset, and new-Customer publication timing are selected.
 - Inactive Customer reactivation on the same identity/code versus a separately controlled re-onboarding/replacement path.
 - Whether post-approval Contact changes require an approval request or direct authorized edit plus audit.
 - Whether GST-to-Location mapping changes require approval.
 - Whether the Class A/B/C change-control model is adopted and how Class B fields are classified; no policy/configuration tables are added now.
-- Whether the implemented Company-named identifier-type reference should be generalized for shared Company/Customer use.
-- Physical geography FK naming/alignment and the shared reference target for `customer_documents.document_type_id`.
+- Which legal/statutory identifiers and supporting evidence apply outside India by supported jurisdiction and entity/legal type.
 - FX source, date, override, and Receipt cross-currency rules.
-- Finance edit/self-approval behavior for Sales Orders and AR Documents. Customer maker self-approval is prohibited; Customer elevated edit-and-approve preserves the Maker snapshot and a derived exact Authority-approved snapshot with action/reason evidence.
+- Finance edit/self-approval behavior for Sales Orders and AR Documents. Customer maker self-approval is prohibited; Customer authorized edit-and-approve requires the applicable permission and audit while preserving the Maker snapshot and derived exact Authority-approved snapshot with action/reason evidence.
 - PI/TI/CN/DN balance, conversion, correction, cancellation, and settlement eligibility rules.
-- Customer delivery/reminder override semantics.
+- Billing/Invoice Delivery/Collections customer-specific delivery/reminder override semantics.
 - Whether automated recurring/milestone generation is part of the enabled MVP.
 - Whether current goods Billing requires one simple dispatch block.
 - Inter-Unit clearing/balancing account treatment. Approved Revenue and Tax GL mapping applies where relevant, but normal Customer AR remains excluded and the clearing design is not finalized.
@@ -6880,7 +6875,7 @@ Open decisions before downstream schema freeze are:
 
 | Date | Flow | Old table / design | Action | New table / design | Reason |
 |---|---|---|---|---|---|
-| 2026-10-06 | Customer 14-table Master and JSONB request history | Ten operational Customer tables left Location versioning, workflow persistence, identifier claims, and Customer Code unresolved; Contact table names were technical | PROPOSE FOR FREEZE / SUPERSEDE OPTIONS | Eleven operational tables with stable/effective-dated Locations and friendly Contact names plus `customer_requests`, immutable JSONB `customer_request_snapshots`, and append-only `customer_request_actions`; Submit/publish duplicate validation without claims; Company-configured system Customer Code | Documentation only. Preserve exact submitted request payloads without typed revision children, keep pending data outside operational tables, and leave Contact/GST-mapping control, reactivation, delivery resolution, reference alignment, and exact physical constraints under REVIEW/OPEN |
+| 2026-10-06 | Customer 14-table Master and JSONB request history | Ten operational Customer tables left Location versioning, workflow persistence, identifier claims, and Customer Code unresolved; Contact table names were technical | PROPOSE FOR FREEZE / SUPERSEDE OPTIONS | Eleven operational tables with stable/effective-dated Locations and friendly Contact names plus `customer_requests`, immutable JSONB `customer_request_snapshots`, and append-only `customer_request_actions`; Submit/publish duplicate validation without claims; Company-configured system Customer Code | Documentation only. Preserve exact submitted request payloads without typed revision children and keep pending data outside operational tables. Customer change-control classification, post-approval Contact treatment, GST-to-Location mapping control, and non-India statutory applicability remain REVIEW; reactivation remains OPEN. |
 | 2026-10-03 | Customer operational master and workflow reconciliation | One 15-table proposal finalized typed Customer revisions, revision children, approval submissions/decisions, revision-only documents, and identifier claims; `customers` carried direct PAN and revision pointers | PROPOSE / SUPERSEDE PHYSICAL ASSUMPTIONS / MOVE TO REVIEW | Ten-table operational Customer master with generic `customer_identifiers`, complete Location addresses, operational `customer_documents` using `stored_files`; three mutually exclusive workflow options and optional identifier claims under REVIEW | Do not choose an exact-history or open-draft reservation policy through schema convenience. Clarify Customer default Payment Term semantics and keep implementation prohibited until workflow/history questions are answered |
 | 2026-10-03 | Customer Onboarding ERD and detailed database design | Nine legacy Customer `ADD` sketches mixed current/draft state, lacked typed material revisions, identifier reservations, separate communication endpoints/purposes, and revision-specific file evidence | PROPOSE / MODIFY / REPLACE / ADD | 15-table proposed Customer core in `CUSTOMER_ONBOARDING_ERD.md`; optional `customer_location_versions` remains REVIEW | Separate live projections from immutable typed revisions, publish approvals atomically, hard-block Company-scoped PAN/GSTIN duplicates across drafts/current rows, reuse Payment Terms/stored files/audit, and avoid Party/generic workflow/JSON overengineering. Documentation only; Customer Code/reactivation/location-history/delivery-verification decisions remain unresolved |
 | 2026-10-03 | Customer Onboarding pre-ERD reconciliation | Customer ownership/uniqueness were unresolved; Locations carried Billing/Shipping flags; Contacts embedded email/phone and roles implied recipient use; Customer credit-period and communication-purpose persistence were absent; Customer Location versions were DEFER | PROPOSE / SUPERSEDE ASSUMPTIONS / REVIEW PHYSICAL DESIGN | Company-specific Customer baseline; Company-scoped PAN/GSTIN duplicate control; transaction-selected Bill-To/Ship-To; separate Contact identity/endpoints/roles/AR purposes; one optional Customer Payment Term with Company fallback; `customer_location_versions` moved to REVIEW | Documentation/design only. Existing Customer `ADD` sketches remain pre-ERD candidates and are not approved schema. Customer Code, reactivation, Location version persistence, delivery/reminder override semantics, and all physical table/constraint/API choices remain open/review for the next phase |

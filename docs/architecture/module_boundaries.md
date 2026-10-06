@@ -99,9 +99,9 @@ Customer Code lifecycle, Customer default Payment Term/credit period, Customer C
 
 No shared Party, Vendor, or Contact master is approved for MVP. Common/Party-like data remains physically Customer-owned, but this does not declare permanent AR domain ownership. The boundary must remain explicit so a future approved Party model can link or extract common identity while Customer/AR behavior stays in AR.
 
-The MVP uses one Customer onboarding/amendment business workflow for both categories and conceptually classifies controlled changes as `COMMON/PARTY-LIKE` or `CUSTOMER/AR-SPECIFIC`. The current working persistence direction is Customer-specific Request + immutable JSONB Request Snapshots + append-only Actions; exact history means the exact submitted request payload, not typed Customer revision children. A future Party model may move common identity approval to Party; it must not force AR and future AP/Vendor onboarding to share terms, Contact purposes, or workflow routes.
+Where a change in either category requires approval, it uses the Customer-specific onboarding/amendment workflow. Controlled changes remain conceptually classified as `COMMON/PARTY-LIKE` or `CUSTOMER/AR-SPECIFIC`. The current working persistence direction is Customer-specific Request + immutable JSONB Request Snapshots + append-only Actions; exact history means the exact submitted request payload, not typed Customer revision children. A future Party model may move common identity approval to Party; it must not force AR and future AP/Vendor onboarding to share terms, Contact purposes, or workflow routes.
 
-The full decision/status register is [Customer Onboarding Architecture and Decision Baseline](customer_onboarding_decision_baseline.md).
+The consolidated Customer decision/status baseline is [Customer Business Rules](../modules/customer/business_rules.md), with unresolved matters isolated in [Customer Open Decisions](../modules/customer/open_decisions.md).
 
 ---
 

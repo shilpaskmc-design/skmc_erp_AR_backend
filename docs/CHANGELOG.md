@@ -34,6 +34,22 @@ Use `CHG-YYYY-MM-DD-NNN`, where the final three digits are a sequence for that d
 - **Implementation impact:** State whether implementation work is required, prohibited, completed, or separately pending.
 - **Open follow-ups:** List unresolved consequences without deciding them by assumption.
 
+### CHG-2026-10-06-002 — Customer Module Documentation Consolidation
+
+- **Change ID:** CHG-2026-10-06-002
+- **Date:** 2026-10-06
+- **Status:** PROPOSED
+- **Area:** Customer Onboarding / Documentation Governance
+- **Source / discussion context:** Documentation-only consolidation requested after the Customer 14-table working design and request-history direction were reconciled.
+- **Previous design/assumption:** Current Customer requirements, decision baseline, workflow rules, persistence design, and unresolved questions were distributed across separate requirement, architecture, shared approval/audit, database, and AR documents. The old requirement and architecture-baseline paths could still appear to be competing canonical Customer sources.
+- **New proposed decision:** Establish `docs/modules/customer/` as the canonical Customer documentation set with a module overview, requirements, workflows, unchanged 14-table data model and Mermaid source, business rules, and open-decisions register. Convert the former requirement and architecture-baseline paths to compatibility redirects, retain the workflow-options document as prominently superseded history, and update only Customer-related links in shared consumers.
+- **Decision:** Consolidate documentation authority and navigation without changing Customer business behavior, workflow states/actions, table count, proposed columns, lifecycle, or physical-design status.
+- **Reason:** Give reviewers and future implementers one clear Customer reading path, eliminate duplicate active authority, and keep confirmed, open, review, deferred, and historical material visibly separated.
+- **Supersedes:** Independent canonical status of `requirements/customer_onboarding.md` and `architecture/customer_onboarding_decision_baseline.md`; their current content is consolidated under `modules/customer/`. No earlier product or database-design decision is superseded by this documentation-only reorganization.
+- **Affected documents:** `modules/customer/README.md`; `modules/customer/requirements.md`; `modules/customer/workflows.md`; `modules/customer/data_model.md`; `modules/customer/business_rules.md`; `modules/customer/open_decisions.md`; `requirements/customer_onboarding.md`; `architecture/customer_onboarding_decision_baseline.md`; `history/superseded/customer/customer_onboarding_workflow_options.md`; `README.md`; `architecture/module_boundaries.md`; `requirements/approval_and_audit`; `requirements/database.md`; `AR_MVP_ARCHITECTURE.md`; `CHANGELOG.md`.
+- **Implementation impact:** Documentation/design only. No application code, migration, SQL, ORM model, API, service, route, frontend, test, or physical database change is authorized or performed.
+- **Remaining open decisions:** Class A/B/C Customer-change control adoption and Class B classification; post-approval Contact change control; GST-to-Location mapping change control; Customer reactivation; and non-India statutory applicability. Credit Limit remains `DEFERRED`, not open.
+
 ### CHG-2026-10-06-001 — Customer 14-Table Master and JSONB Request-History Working Design
 
 - **Change ID:** CHG-2026-10-06-001

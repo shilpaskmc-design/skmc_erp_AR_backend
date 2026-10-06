@@ -4,7 +4,7 @@
 
 **Status:** `SUPERSEDED` as active design options; retained for historical traceability only.
 
-The current working design is **Request + append-only Actions + immutable JSONB Request Snapshots**, documented in [Customer Onboarding and Customer Master Database Design](../../../modules/customer/data_model.md). It was selected after these alternatives were compared. Do not implement or count any table set in this historical document.
+The current Customer source of truth begins at the [Customer Module Overview](../../../modules/customer/README.md). The active workflow is documented in [Customer Request Workflows](../../../modules/customer/workflows.md), and the current persistence proposal is **Request + append-only Actions + immutable JSONB Request Snapshots** in [Customer Onboarding and Customer Master Database Design](../../../modules/customer/data_model.md). It was selected after these alternatives were compared. Do not implement or count any table set in this historical document.
 
 The business journey is confirmed:
 
